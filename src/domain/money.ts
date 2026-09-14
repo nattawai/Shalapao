@@ -9,7 +9,15 @@
 export type Satang = number;
 
 export function bahtToSatang(baht: string | number): Satang {
-  const n = typeof baht === 'string' ? Number(baht.replace(/,/g, '').trim()) : baht;
+  let n: number;
+  if (typeof baht === 'string') {
+    // Number('') คืน 0 ไม่ใช่ NaN — สตริงว่างจึงลอดผ่าน isFinite ได้ ต้องดักก่อน
+    const cleaned = baht.replace(/,/g, '').trim();
+    if (cleaned === '') throw new Error(`จำนวนเงินไม่ถูกต้อง: ${String(baht)}`);
+    n = Number(cleaned);
+  } else {
+    n = baht;
+  }
   if (!Number.isFinite(n)) throw new Error(`จำนวนเงินไม่ถูกต้อง: ${String(baht)}`);
   return Math.round(n * 100);
 }
