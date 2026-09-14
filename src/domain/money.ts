@@ -48,11 +48,14 @@ export function splitProrata(
   const sum = weights.reduce((a, b) => a + b, 0);
   if (sum <= 0) throw new Error('น้ำหนักรวมต้องมากกว่า 0');
 
-  const parts = weights.map((w) => Math.floor((total * w) / sum));
-  const allocated = parts.reduce((a, b) => a + b, 0);
-  parts[remainderTo] += total - allocated;
+  const floored = weights.map((w) => Math.floor((total * w) / sum));
+  const allocated = floored.reduce((a, b) => a + b, 0);
+  const remainder = total - allocated;
 
-  return parts;
+  // เขียนแบบ immutable แทนการแก้ผ่าน index เพราะ noUncheckedIndexedAccess
+  // มอง arr[i] เป็น number | undefined เสมอ — การใช้ map ทำให้ไม่ต้องใส่ !
+  // ปิดปาก TypeScript ซึ่งจะทำลายจุดประสงค์ของ flag ไปเปล่า ๆ
+  return floored.map((part, i) => (i === remainderTo ? part + remainder : part));
 }
 
 /** แบ่งเท่า ๆ กัน เศษตกที่เจ้าภาพเช่นกัน */
