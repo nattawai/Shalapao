@@ -1,0 +1,26 @@
+name = "shalapao"
+main = "src/index.ts"
+compatibility_date = "2026-09-14"
+compatibility_flags = ["nodejs_compat"]
+
+# ---- D1 ----
+# สร้างแล้วเมื่อ 2026-09-14 · ภูมิภาค APAC
+[[d1_databases]]
+binding = "DB"
+database_name = "shalapao"
+database_id = "f1a47802-736f-4b02-bc53-bc3cc8316688"
+migrations_dir = "migrations"
+
+# ---- หน้าเว็บ LIFF (build จาก src/web) ----
+[assets]
+directory = "./dist/web"
+binding = "ASSETS"
+
+# ---- Secret ----
+# ห้ามใส่ค่าจริงในไฟล์นี้ ใช้คำสั่งนี้แทน:
+#   npx wrangler secret put LINE_CHANNEL_SECRET
+#   npx wrangler secret put LINE_CHANNEL_ACCESS_TOKEN
+# ตอน dev ใส่ใน .dev.vars ซึ่งอยู่ใน .gitignore แล้ว
+
+[vars]
+APP_ENV = "development"

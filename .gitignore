@@ -1,0 +1,26 @@
+node_modules/
+dist/
+.wrangler/
+
+# ความลับ — ห้ามหลุดเด็ดขาด
+.dev.vars
+.dev.vars.*
+.env
+.env.*
+!.env.example
+
+*.log
+coverage/
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# ข้อมูลการเงินจริงที่อาจ export มาทดสอบ
+*.local.csv
+data/private/
+
+# เอกสารที่มีตัวเลขจริง ชื่อคนจริง หรือ id จริง
+# กฎ: ถ้าไฟล์มีของพวกนี้ → ย้ายมาที่นี่ อย่าปล่อยไว้ใน docs/
+docs/private/
+*.private.md

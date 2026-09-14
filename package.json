@@ -1,0 +1,30 @@
+{
+  "name": "shalapao",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "แอปกระเป๋าเงินหลายใบบน LINE — เก็บเงิน ตั้งเป้า และกระทบยอดให้ตรงธนาคารเสมอ",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:create": "wrangler d1 create shalapao",
+    "db:local": "wrangler d1 migrations apply shalapao --local",
+    "db:remote": "wrangler d1 migrations apply shalapao --remote",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "check": "pnpm typecheck && pnpm lint && pnpm test"
+  },
+  "dependencies": {
+    "hono": "^4.6.0",
+    "ulid": "^2.3.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20240000.0",
+    "eslint": "^9.0.0",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0",
+    "wrangler": "^3.80.0"
+  },
+  "packageManager": "pnpm@9.0.0"
+}
