@@ -1,13 +1,12 @@
 import { defineConfig } from 'vitest/config';
 
+// projects อยู่ใน vitest.workspace.ts — ไฟล์นี้เก็บ option ระดับ root
+// coverage นับเฉพาะชั้นที่บังคับ TDD (domain/services) ตามที่ตกลงไว้
 export default defineConfig({
   test: {
-    include: ['src/**/*.test.ts', 'tests/**/*.test.ts'],
-    environment: 'node',
     coverage: {
       include: ['src/domain/**', 'src/services/**'],
       thresholds: {
-        // ตั้งสูงเฉพาะชั้นที่บังคับ TDD — routes/web ไม่นับ
         lines: 90,
         functions: 90,
         branches: 85
