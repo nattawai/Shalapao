@@ -26,7 +26,9 @@ export default defineConfig(async () => {
     ],
     test: {
       name: 'workers',
-      include: ['src/repositories/**/*.test.ts'],
+      // repositories แตะ D1 · tests/workers เป็น smoke test ของ domain ที่ต้องรัน
+      // ในรันไทม์จริง (เช่น today() ที่พึ่ง Intl timezone ของ workerd)
+      include: ['src/repositories/**/*.test.ts', 'tests/workers/**/*.test.ts'],
       setupFiles: ['./tests/support/apply-migrations.ts']
     }
   };
