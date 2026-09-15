@@ -27,6 +27,10 @@ export type CreatePocketInput = {
   sortOrder?: number;
 };
 
+export type ListPocketsOptions = {
+  includeArchived?: boolean;
+};
+
 type PocketRow = {
   id: string;
   parent_id: string | null;
@@ -76,9 +80,15 @@ function mapRow(row: PocketRow): PocketWithBalance {
   };
 }
 
-export async function listPockets(db: D1Database, userId: string): Promise<PocketWithBalance[]> {
+export async function listPockets(
+  db: D1Database,
+  userId: string,
+  options: ListPocketsOptions = {}
+): Promise<PocketWithBalance[]> {
+  // กระเป๋าที่ archive แล้วซ่อนโดยค่าเริ่มต้น · ขอเห็นได้ผ่าน includeArchived
+  const archivedFilter = options.includeArchived ? '' : ' AND p.archived_at IS NULL';
   const { results } = await db
-    .prepare(`${SELECT_MEMBER_POCKET} ORDER BY p.sort_order, p.id`)
+    .prepare(`${SELECT_MEMBER_POCKET}${archivedFilter} ORDER BY p.sort_order, p.id`)
     .bind(userId)
     .all<PocketRow>();
   return results.map(mapRow);

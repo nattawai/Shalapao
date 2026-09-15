@@ -31,6 +31,10 @@ async function seedCategory(userId: string, name: string): Promise<string> {
   return id;
 }
 
+async function archivePocket(pocketId: string): Promise<void> {
+  await db.prepare('UPDATE pocket SET archived_at = ? WHERE id = ?').bind(nowIso(), pocketId).run();
+}
+
 async function countPockets(): Promise<number> {
   const row = await db.prepare('SELECT COUNT(*) AS n FROM pocket').first<{ n: number }>();
   return row?.n ?? -1;
@@ -145,6 +149,35 @@ describe('createPocket — parent/category ต้องเป็นของผ�
     await expect(
       createPocket(db, alice, { name: 'x', kind: 'holds_balance', categoryId: bobsCat })
     ).rejects.toThrow();
+  });
+});
+
+describe('listPockets — กระเป๋าที่ archive แล้ว', () => {
+  test('ค่าเริ่มต้นไม่คืนกระเป๋าที่ archive แล้ว', async () => {
+    const live = await createPocket(db, alice, { name: 'ยังใช้', kind: 'holds_balance' });
+    const gone = await createPocket(db, alice, { name: 'เก็บแล้ว', kind: 'holds_balance' });
+    await archivePocket(gone.id);
+
+    const list = await listPockets(db, alice);
+    expect(list.map((p) => p.id)).toEqual([live.id]);
+  });
+
+  test('includeArchived: true คืนทั้งที่ยังใช้และที่ archive แล้ว', async () => {
+    const live = await createPocket(db, alice, { name: 'ยังใช้', kind: 'holds_balance' });
+    const gone = await createPocket(db, alice, { name: 'เก็บแล้ว', kind: 'holds_balance' });
+    await archivePocket(gone.id);
+
+    const list = await listPockets(db, alice, { includeArchived: true });
+    expect(list.map((p) => p.id).sort()).toEqual([live.id, gone.id].sort());
+  });
+
+  test('getPocket ยังคืนกระเป๋าที่ archive แล้ว — เรียกเจาะจง id เพื่อดู/กู้คืน', async () => {
+    const p = await createPocket(db, alice, { name: 'เก็บแล้ว', kind: 'holds_balance' });
+    await archivePocket(p.id);
+
+    const fetched = await getPocket(db, alice, p.id);
+    expect(fetched?.id).toBe(p.id);
+    expect(fetched?.archivedAt).not.toBeNull();
   });
 });
 
