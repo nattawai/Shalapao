@@ -26,13 +26,18 @@ describe('newId', () => {
   // ถ้าไม่มี test ข้อนี้ วันหนึ่งมีคนเปลี่ยนกลับไป ulid() เปล่าแล้วไม่มีอะไรเตือน
   test('สร้างติดกันเรียงจากน้อยไปมากเสมอ', () => {
     const ids = Array.from({ length: 1000 }, () => newId());
+    // พิสูจน์ว่าแตะเคสจริง: ต้องมีหลาย id ที่ใช้ timestamp เดียวกัน (10 ตัวแรกซ้ำ)
+    // ถ้าเครื่อง/CI ช้าจน newId() ตกคนละ ms หมด ลำดับจะเรียงเองอยู่แล้วโดยไม่ได้
+    // ทดสอบการ clamp ของ monotonic — บรรทัดนี้จะแดงเพื่อเตือนว่าไม่ได้แตะเคส
+    const prefixes = ids.map((id) => id.slice(0, 10));
+    expect(new Set(prefixes).size).toBeLessThan(ids.length);
     expect(ids).toEqual([...ids].sort());
   });
 });
 
 describe('idCreatedAt', () => {
-  // ulid สร้าง monotonicFactory ตอน import จึงไม่อ่านนาฬิกาที่ vi.useFakeTimers คุม
-  // ยืนยันด้วยกรอบเวลาจริง (before/after) แทนการตรึงเวลา
+  // ใช้กรอบเวลาจริง (before/after) ไม่ตรึงเวลา เพราะ monotonicFactory clamp เป็น
+  // timestamp ล่าสุดเมื่อ clock ถอยหลัง การ fake เวลาย้อนหลังจึงไม่น่าเชื่อถือ
   test('คืนเวลาที่อยู่ในช่วงตอนสร้าง id', () => {
     const before = Date.now();
     const ms = idCreatedAt(newId()).getTime();
