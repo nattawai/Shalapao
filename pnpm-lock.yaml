@@ -5,7 +5,7 @@ settings:
   excludeLinksFromLockfile: false
 
 overrides:
-  sharp: '>=0.35.4'
+  sharp: ^0.35.4
 
 importers:
 
@@ -33,9 +33,6 @@ importers:
       typescript-eslint:
         specifier: ^8.70.0
         version: 8.70.0(eslint@9.39.5)(typescript@5.9.3)
-      vite:
-        specifier: ^8.3.0
-        version: 8.3.0(esbuild@0.28.1)
       vitest:
         specifier: ^4.1.11
         version: 4.1.11(vite@8.3.0(esbuild@0.28.1))
