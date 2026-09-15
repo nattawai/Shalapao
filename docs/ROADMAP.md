@@ -12,7 +12,7 @@
 
 | เฟส | เวอร์ชัน | ความคืบหน้า |
 |---|---|---|
-| **v0 — ใช้เองได้จริง** | `0.1.0` | 11 / 27 |
+| **v0 — ใช้เองได้จริง** | `0.1.0` | 11 / 30 |
 | v1 — เป้าหมายและแจ้งเตือน | `0.2.0` | 0 / 7 |
 | v2 — แบ่งเงินเดือนอัตโนมัติ | `0.3.0` | 0 / 5 |
 | v3 — บอทและกระเป๋าร่วม | `0.4.0` | 0 / 6 |
@@ -34,7 +34,7 @@
 - [x] โครงโฟลเดอร์ + กฎ dependency ระหว่างชั้น (ESLint)
 - [x] CI workflow + PR template
 - [x] test harness D1 (workerd + Miniflare) รัน migration จริง
-- [ ] 🔄 อัป workers toolchain (wrangler 4 · vitest 4) — *อยู่ใน PR รอ merge*
+- [x] อัป workers toolchain (wrangler 4 · vitest 4) · เหลือ wrangler ตัวเดียว · `pnpm audit` 0
 
 ### domain
 
@@ -45,13 +45,13 @@
 ### repositories
 
 - [x] `pocket.repository.ts` — อ่าน/สร้าง · กันรั่วข้ามผู้ใช้ทั้ง read และ `parentId`/`categoryId`
-- [ ] `entry.repository.ts` — append-only · ห้ามแก้รายการเก่ากว่า `last_reconciled_at` · ขาโยกเงินสองขาใน batch เดียว
-- [ ] `category.repository.ts`
+- [x] `entry.repository.ts` — append-only · โยกเงินสองขาใน batch เดียว · กันรั่วข้ามผู้ใช้ (member + categoryId) *(รีวิวย้อนหลังบน main ค้างอยู่ — #12 เข้าโดยไม่มี branch protection)*
+- [x] `category.repository.ts` — user-scoped · archived filter
 
 ### services
 
 - [ ] `pocket.service.ts` — business rule แยกจาก repository
-- [ ] `entry.service.ts` — เงินเข้า/ออก/โยก
+- [ ] `entry.service.ts` — เงินเข้า/ออก/โยก · **ห้ามแก้รายการเก่ากว่า `last_reconciled_at`** (กฎข้อ 6 · repository ไม่ได้บังคับ อยู่ที่ชั้นนี้)
 - [ ] `reconcile.service.ts` — เทียบยอดจริงกับยอดคำนวณ · ตั้ง `last_reconciled_at`
 
 ### ขอบระบบ
