@@ -38,8 +38,8 @@ export function idCreatedAt(id: string): Date {
  * ระหว่างเที่ยงคืนถึงตี 7 ตามเวลาไทย UTC ยังเป็นเมื่อวาน → รายการลงวันผิด
  * Intl 'en-CA' ให้รูปแบบ YYYY-MM-DD พอดี · workerd มี full ICU รองรับ timezone
  */
-export function today(timeZone = 'Asia/Bangkok'): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone }).format(new Date());
+export function today(timeZone = 'Asia/Bangkok', now = new Date()): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone }).format(now);
 }
 
 /** เวลาแบบ ISO-8601 สำหรับคอลัมน์ created_at / updated_at */
