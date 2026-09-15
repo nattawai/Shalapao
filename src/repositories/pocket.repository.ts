@@ -101,6 +101,20 @@ export async function createPocket(
   userId: string,
   input: CreatePocketInput
 ): Promise<PocketWithBalance> {
+  // FK เช็คแค่ว่าแถวมีอยู่ ไม่ได้เช็คเจ้าของ — ถ้าไม่กันตรงนี้ ผู้ใช้จะเกาะ
+  // กระเป๋า/หมวดของคนอื่นได้ผ่าน parentId/categoryId ซึ่งเป็นการรั่วข้ามผู้ใช้
+  if (input.parentId != null) {
+    const parent = await getPocket(db, userId, input.parentId);
+    if (!parent) throw new Error('parentId ไม่ใช่กระเป๋าที่ผู้ใช้เข้าถึงได้');
+  }
+  if (input.categoryId != null) {
+    const owned = await db
+      .prepare('SELECT id FROM category WHERE id = ? AND user_id = ?')
+      .bind(input.categoryId, userId)
+      .first<{ id: string }>();
+    if (!owned) throw new Error('categoryId ไม่ใช่หมวดของผู้ใช้');
+  }
+
   const id = newId();
   const now = nowIso();
 

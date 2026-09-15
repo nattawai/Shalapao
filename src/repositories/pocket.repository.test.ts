@@ -22,6 +22,20 @@ async function insertEntry(pocketId: string, userId: string, amountSatang: numbe
     .run();
 }
 
+async function seedCategory(userId: string, name: string): Promise<string> {
+  const id = newId();
+  await db
+    .prepare('INSERT INTO category (id, user_id, name, created_at) VALUES (?, ?, ?, ?)')
+    .bind(id, userId, name, nowIso())
+    .run();
+  return id;
+}
+
+async function countPockets(): Promise<number> {
+  const row = await db.prepare('SELECT COUNT(*) AS n FROM pocket').first<{ n: number }>();
+  return row?.n ?? -1;
+}
+
 // ทุก test เริ่มจากฐานว่าง (isolated storage rollback ให้) จึง seed ใหม่ทุกครั้ง
 let alice: string;
 let bob: string;
@@ -86,6 +100,51 @@ describe('getPocket / listPockets — ยอดมาจาก view', () => {
 
     expect(await getPocket(db, alice, p.id)).toBeNull();
     expect(await listPockets(db, alice)).toHaveLength(0);
+  });
+});
+
+describe('createPocket — parent/category ต้องเป็นของผู้ใช้เดียวกัน', () => {
+  test('parentId ที่เป็นกระเป๋าของตัวเอง → สร้างได้ · เก็บค่าถูก', async () => {
+    const parent = await createPocket(db, alice, { name: 'Base', kind: 'holds_balance' });
+    const child = await createPocket(db, alice, {
+      name: 'Saving',
+      kind: 'holds_balance',
+      parentId: parent.id
+    });
+    expect(child.parentId).toBe(parent.id);
+  });
+
+  // 🔴 ข้อ 2.3 — FK เช็คแค่ว่าแถวมีอยู่ ไม่ได้เช็คเจ้าของ ต้องกันที่ repository
+  test('parentId ที่เป็นกระเป๋าของคนอื่น → ปฏิเสธ ไม่สร้างแถว', async () => {
+    const bobsPocket = await createPocket(db, bob, { name: 'ของ Bob', kind: 'holds_balance' });
+    const before = await countPockets();
+
+    await expect(
+      createPocket(db, alice, { name: 'แอบเกาะ', kind: 'holds_balance', parentId: bobsPocket.id })
+    ).rejects.toThrow();
+
+    expect(await countPockets()).toBe(before);
+    expect(await listPockets(db, alice)).toHaveLength(0);
+  });
+
+  test('parentId ที่ไม่มีอยู่จริง → ปฏิเสธ', async () => {
+    await expect(
+      createPocket(db, alice, { name: 'ลูกกำพร้า', kind: 'holds_balance', parentId: newId() })
+    ).rejects.toThrow();
+  });
+
+  test('categoryId ที่เป็นของตัวเอง → สร้างได้ · เก็บค่าถูก', async () => {
+    const cat = await seedCategory(alice, 'อาหาร');
+    const p = await createPocket(db, alice, { name: 'ค่ากิน', kind: 'holds_balance', categoryId: cat });
+    expect(p.categoryId).toBe(cat);
+  });
+
+  // 🔴 categoryId รั่วแบบเดียวกับ parentId — Alice ใส่หมวดของ Bob ไม่ได้
+  test('categoryId ที่เป็นของคนอื่น → ปฏิเสธ', async () => {
+    const bobsCat = await seedCategory(bob, 'หมวดของ Bob');
+    await expect(
+      createPocket(db, alice, { name: 'x', kind: 'holds_balance', categoryId: bobsCat })
+    ).rejects.toThrow();
   });
 });
 
