@@ -31,9 +31,15 @@ export function idCreatedAt(id: string): Date {
   return new Date(ms);
 }
 
-/** วันที่รูปแบบ YYYY-MM-DD ตามที่ schema บังคับไว้ */
-export function today(): string {
-  return new Date().toISOString().slice(0, 10);
+/**
+ * วันที่รูปแบบ YYYY-MM-DD ตามที่ schema บังคับไว้ (CHECK occurred_on LIKE '____-__-__')
+ *
+ * ใช้ timezone ไม่ใช่ UTC: toISOString() เป็น UTC และไทยคือ UTC+7
+ * ระหว่างเที่ยงคืนถึงตี 7 ตามเวลาไทย UTC ยังเป็นเมื่อวาน → รายการลงวันผิด
+ * Intl 'en-CA' ให้รูปแบบ YYYY-MM-DD พอดี · workerd มี full ICU รองรับ timezone
+ */
+export function today(timeZone = 'Asia/Bangkok'): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone }).format(new Date());
 }
 
 /** เวลาแบบ ISO-8601 สำหรับคอลัมน์ created_at / updated_at */
