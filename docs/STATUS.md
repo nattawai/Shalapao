@@ -25,7 +25,7 @@
 | `repositories/pocket.repository.ts` + test | ✅ TDD · กันรั่วข้ามผู้ใช้ทั้ง read และ `parentId`/`categoryId` · list ซ่อน archived |
 | test harness D1 (`vitest-pool-workers`) | ✅ workerd + Miniflare D1 รัน migration จริง |
 | workers toolchain | ✅ wrangler 4.124.0 (ตัวเดียว) · vitest 4.1.11 · pool-workers 0.22 · miniflare 5 · vite 8 |
-| `pnpm audit` (dev dependency) | ✅ 0 ช่องโหว่ (จาก 30) · sharp บังคับ `>=0.35.4` ผ่าน `pnpm.overrides` |
+| `pnpm audit` (dev dependency) | ✅ 0 ช่องโหว่ (จาก 30) · sharp บังคับ `^0.35.4` ผ่าน `pnpm.overrides` |
 | LINE provider + channels | ❌ |
 | `services/` `routes/` `web/` | ❌ ยังไม่เริ่ม |
 | branch protection + public/private | ❌ ยังไม่เคาะ |
@@ -75,7 +75,7 @@
 |---|---|---|
 | `zod` | validate input ที่ขอบ route | เขียน `routes/` ตัวแรก |
 
-อนุมัติและเพิ่มแล้ว: `typescript-eslint` · `@cloudflare/vitest-pool-workers` (0.8.19 — เข้ากับ vitest 2.1)
+อนุมัติและเพิ่มแล้ว: `typescript-eslint` · `@cloudflare/vitest-pool-workers` (0.22 — เข้ากับ vitest 4.1)
 
 ---
 
