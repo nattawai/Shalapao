@@ -24,6 +24,8 @@
 | **migration รันบน D1 remote** | ✅ ครบ 6 ไฟล์ · `d1_migrations` track ถูกต้อง |
 | `repositories/pocket.repository.ts` + test | ✅ TDD · กันรั่วข้ามผู้ใช้ทั้ง read และ `parentId`/`categoryId` · list ซ่อน archived |
 | test harness D1 (`vitest-pool-workers`) | ✅ workerd + Miniflare D1 รัน migration จริง |
+| workers toolchain | ✅ wrangler 4.124.0 (ตัวเดียว) · vitest 4.1.11 · pool-workers 0.22 · miniflare 5 · vite 8 |
+| `pnpm audit` (dev dependency) | ✅ 0 ช่องโหว่ (จาก 30) · sharp บังคับ `>=0.35.4` ผ่าน `pnpm.overrides` |
 | LINE provider + channels | ❌ |
 | `services/` `routes/` `web/` | ❌ ยังไม่เริ่ม |
 | branch protection + public/private | ❌ ยังไม่เคาะ |
@@ -105,8 +107,8 @@
 
 | เรื่อง | ระวังอะไร |
 |---|---|
-| test D1 compat date | workerd ที่ลงรองรับถึง `2025-04-17` · miniflare fallback จาก `2026-09-14` ให้ (แค่ warning ไม่ fail) |
-| CI ต้องรัน 2 project | `vitest.workspace.ts` แยก unit (node) กับ workers (workerd) · CI ต้องมี workerd โหลดได้ |
-| CI ขั้น `wrangler deploy --dry-run` | อาจ fail ถ้ายังไม่มี `dist/web` — ลบ step ออกก่อนได้ |
+| test D1 compat date | miniflare 5 ที่ pool-workers ฝังมา รองรับ compat date สูงสุด `2026-08-22` และ **เปลี่ยนจาก fallback+warning เป็น hard error** · test config จึงตั้ง `2026-08-22` (ต่างจาก production `2026-09-14` ใน `wrangler.toml` ตั้งใจ) · เมื่อ miniflare รุ่นใหม่รองรับ `2026-09-14` ค่อยขยับให้ตรง |
+| CI ต้องรัน 2 project | `vitest.config.ts` `test.projects` แยก unit (node) กับ workers (workerd) · CI ต้องมี workerd โหลดได้ |
+| `wrangler deploy --dry-run` | ลบออกจาก CI แล้ว (รอ `dist/web`) · เพิ่มกลับตอนมี web build |
 | coverage threshold 90% | `pnpm check` ไม่ได้รัน coverage · จะเจอตอนรัน `--coverage` เท่านั้น · ลดเหลือ 80 ได้ แต่อย่าปิด |
 | LINE provider | ถ้าตั้งบอทกับ LIFF คนละ provider = `userId` คนละตัว แก้ยากมากตอนมีข้อมูลแล้ว |

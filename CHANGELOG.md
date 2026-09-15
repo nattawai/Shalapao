@@ -30,6 +30,7 @@
 - บันทึกกฎว่า provider ของบอทกับ LIFF ต้องเป็นตัวเดียวกัน
 - test พิสูจน์ว่าผู้ใช้อ่านกระเป๋าของผู้ใช้อื่นไม่ได้ — `getPocket` คืน `null` · `listPockets` ไม่ปนกระเป๋าคนอื่น
 - `createPocket` ปฏิเสธ `parentId`/`categoryId` ที่เป็นของผู้ใช้อื่น — FK เช็คแค่ว่าแถวมีอยู่ ไม่เช็คเจ้าของ จึงเป็นช่องรั่วข้ามผู้ใช้ถ้าไม่กันที่ repository
+- อัป workers toolchain (wrangler 4 · vitest 4 · miniflare 5 · vite 8) — ช่องโหว่ dev dependency ที่ `pnpm audit` พบหายครบ (30 → 0) และเหลือ wrangler ตัวเดียว
 
 ---
 
