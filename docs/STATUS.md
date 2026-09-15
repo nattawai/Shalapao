@@ -18,11 +18,11 @@
 | CI workflow + PR template | ✅ |
 | D1 database | ✅ สร้างแล้ว · `f1a47802-736f-4b02-bc53-bc3cc8316688` · APAC |
 | `pnpm install` / lockfile | ✅ |
-| **`pnpm check` (typecheck · lint · test)** | ✅ ผ่านหมด · 22 test |
+| **`pnpm check` (typecheck · lint · test)** | ✅ ผ่านหมด · 30 test |
 | `typescript-eslint` (flat config) | ✅ เพิ่มแล้ว · `recommended` เปิด |
 | git init + push commit แรก | ✅ อยู่บน `main` แล้ว |
 | **migration รันบน D1 remote** | ✅ ครบ 6 ไฟล์ · `d1_migrations` track ถูกต้อง |
-| `repositories/pocket.repository.ts` + test | ✅ TDD · กันข้อมูลรั่วข้ามผู้ใช้พิสูจน์แล้ว |
+| `repositories/pocket.repository.ts` + test | ✅ TDD · กันรั่วข้ามผู้ใช้ทั้ง read และ `parentId`/`categoryId` · list ซ่อน archived |
 | test harness D1 (`vitest-pool-workers`) | ✅ workerd + Miniflare D1 รัน migration จริง |
 | LINE provider + channels | ❌ |
 | `services/` `routes/` `web/` | ❌ ยังไม่เริ่ม |

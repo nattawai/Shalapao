@@ -19,6 +19,9 @@
 - กฎ dependency ระหว่างชั้น บังคับด้วย ESLint
 - `CLAUDE.md` ระดับโฟลเดอร์ LINE และระดับโปรเจกต์
 
+### Changed
+- `listPockets` ซ่อนกระเป๋าที่ archive แล้วโดยค่าเริ่มต้น · ขอเห็นได้ผ่าน option `includeArchived`
+
 ### Fixed
 - `bahtToSatang('')` เดิมคืน `0` เงียบ ๆ (`Number('')` = 0) ตอนนี้โยน error ตามที่ควร
 
@@ -26,6 +29,7 @@
 - `.gitignore` กัน `.dev.vars` · `.env` · `docs/private/` · ไฟล์ข้อมูลการเงินที่ export มาทดสอบ
 - บันทึกกฎว่า provider ของบอทกับ LIFF ต้องเป็นตัวเดียวกัน
 - test พิสูจน์ว่าผู้ใช้อ่านกระเป๋าของผู้ใช้อื่นไม่ได้ — `getPocket` คืน `null` · `listPockets` ไม่ปนกระเป๋าคนอื่น
+- `createPocket` ปฏิเสธ `parentId`/`categoryId` ที่เป็นของผู้ใช้อื่น — FK เช็คแค่ว่าแถวมีอยู่ ไม่เช็คเจ้าของ จึงเป็นช่องรั่วข้ามผู้ใช้ถ้าไม่กันที่ repository
 
 ---
 
