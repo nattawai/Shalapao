@@ -1,6 +1,6 @@
 # STATUS — Shalapao
 
-อัปเดตล่าสุด: 2026-09-14
+อัปเดตล่าสุด: 2026-09-15
 > **อ่านไฟล์นี้ก่อนเริ่มงานทุกครั้ง** — บอกว่าตอนนี้อยู่ตรงไหน ตัดสินใจอะไรไปแล้ว และทำอะไรต่อ
 > Repo: https://github.com/nattawai/Shalapao
 
@@ -12,15 +12,21 @@
 |---|---|
 | Schema + migrations (6 ไฟล์) | ✅ เขียนแล้ว **และทดสอบบน D1 จริงผ่านแล้ว** |
 | โครงโฟลเดอร์ + กฎ dependency (ESLint) | ✅ |
-| `domain/money.ts` + test 12 เคส | ✅ |
+| `domain/money.ts` + test 15 เคส | ✅ |
 | `domain/id.ts` (ULID monotonic) | ✅ |
 | `src/config.ts` · `src/index.ts` | ✅ โครง |
 | CI workflow + PR template | ✅ |
 | D1 database | ✅ สร้างแล้ว · `f1a47802-736f-4b02-bc53-bc3cc8316688` · APAC |
-| `pnpm install` / lockfile | ❌ ยังไม่ได้รัน |
-| git init + push | ❌ |
+| `pnpm install` / lockfile | ✅ |
+| **`pnpm check` (typecheck · lint · test)** | ✅ ผ่านหมด · 30 test |
+| `typescript-eslint` (flat config) | ✅ เพิ่มแล้ว · `recommended` เปิด |
+| git init + push commit แรก | ✅ อยู่บน `main` แล้ว |
+| **migration รันบน D1 remote** | ✅ ครบ 6 ไฟล์ · `d1_migrations` track ถูกต้อง |
+| `repositories/pocket.repository.ts` + test | ✅ TDD · กันรั่วข้ามผู้ใช้ทั้ง read และ `parentId`/`categoryId` · list ซ่อน archived |
+| test harness D1 (`vitest-pool-workers`) | ✅ workerd + Miniflare D1 รัน migration จริง |
 | LINE provider + channels | ❌ |
-| `repositories/` `services/` `routes/` `web/` | ❌ ยังไม่เริ่ม |
+| `services/` `routes/` `web/` | ❌ ยังไม่เริ่ม |
+| branch protection + public/private | ❌ ยังไม่เคาะ |
 
 ---
 
@@ -64,19 +70,18 @@
 | แพ็กเกจ | ใช้ทำอะไร | จำเป็นเมื่อ |
 |---|---|---|
 | `zod` | validate input ที่ขอบ route | เขียน `routes/` ตัวแรก |
-| `typescript-eslint` | ESLint 9 flat config ต้องใช้กับ TS | `pnpm lint` รอบแรก |
-| `@cloudflare/vitest-pool-workers` | จำลอง D1 เพื่อ test `repositories/` | เขียน repository ตัวแรก |
+
+อนุมัติและเพิ่มแล้ว: `typescript-eslint` · `@cloudflare/vitest-pool-workers` (0.8.19 — เข้ากับ vitest 2.1)
 
 ---
 
 ## 5. ขั้นถัดไป — เรียงลำดับ
 
-1. `pnpm install` → `pnpm check`
-2. `git init` + push commit แรก (เข้า `main` ตรงได้ครั้งเดียว เพราะ repo ยังว่าง)
-3. เคาะ public/private → ตั้ง branch protection บน `main` + `develop`
-4. `pnpm db:remote` (database_id ใส่ใน `wrangler.toml` แล้ว · DB ว่างพร้อมรับ)
+1. เปิด PR `feature/v0-pocket-repository` → `main` (อย่า merge เข้า main ตรง ๆ)
+2. เคาะ public/private → ตั้ง branch protection บน `main` + `develop`
+3. `entry.repository.ts` แบบ TDD (append-only · กัน edit ก่อน `last_reconciled_at`)
+4. `services/` ตัวแรก (pocket.service) — business rule แยกจาก repository
 5. สร้าง LINE provider + 2 channels **ภายใต้ provider เดียวกัน** → จดลง `..\_docs\line-provider-channels.md`
-6. เริ่ม `repositories/` ตัวแรกแบบ TDD
 
 ---
 
@@ -100,7 +105,8 @@
 
 | เรื่อง | ระวังอะไร |
 |---|---|
-| `pnpm check` รอบแรก | น่าจะแดงเพราะขาด `typescript-eslint` |
+| test D1 compat date | workerd ที่ลงรองรับถึง `2025-04-17` · miniflare fallback จาก `2026-09-14` ให้ (แค่ warning ไม่ fail) |
+| CI ต้องรัน 2 project | `vitest.workspace.ts` แยก unit (node) กับ workers (workerd) · CI ต้องมี workerd โหลดได้ |
 | CI ขั้น `wrangler deploy --dry-run` | อาจ fail ถ้ายังไม่มี `dist/web` — ลบ step ออกก่อนได้ |
-| coverage threshold 90% | อาจบล็อก PR แรก ๆ · ลดเหลือ 80 ได้ แต่อย่าปิด |
+| coverage threshold 90% | `pnpm check` ไม่ได้รัน coverage · จะเจอตอนรัน `--coverage` เท่านั้น · ลดเหลือ 80 ได้ แต่อย่าปิด |
 | LINE provider | ถ้าตั้งบอทกับ LIFF คนละ provider = `userId` คนละตัว แก้ยากมากตอนมีข้อมูลแล้ว |

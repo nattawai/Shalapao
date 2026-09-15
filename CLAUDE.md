@@ -111,10 +111,16 @@ Shalapao/
 
   tests/
     e2e/                       ทดสอบข้ามชั้น · รวม test กันข้อมูลรั่วข้ามผู้ใช้
+    support/                   ตัวช่วย test เช่น apply-migrations (รัน migration ก่อนเทสต์)
+    env.d.ts                   ชนิดของ binding ใน `cloudflare:test` (DB · TEST_MIGRATIONS)
 ```
 
 **ตั้งชื่อไฟล์:** `kebab-case` + suffix คั่นด้วยจุด — `entry.service.ts` · `pocket.repository.ts` · `create-entry.schema.ts`
 **unit test อยู่ข้างไฟล์ที่ทดสอบ · e2e อยู่ใน `tests/e2e/`**
+
+**test แยกเป็น 2 project** (`vitest.workspace.ts`):
+- `unit` — `domain/` `services/` รันบน **node** เร็ว ไม่แตะ D1
+- `workers` — `repositories/` และ `tests/e2e/` รันบน **workerd + Miniflare D1** (`@cloudflare/vitest-pool-workers`) เพราะ test กันข้อมูลรั่วข้ามผู้ใช้ต้องรัน SQL จริงบน schema จริง ไม่งั้นไม่มีความหมาย
 
 ---
 

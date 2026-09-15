@@ -1,3 +1,5 @@
+import tseslint from 'typescript-eslint';
+
 // กฎ dependency ระหว่างชั้น — บังคับด้วย lint ไม่ใช่ด้วยวินัย
 //
 //   routes  →  services  →  repositories  →  D1
@@ -6,7 +8,13 @@
 // ให้อัตโนมัติ ถ้ามีทางเขียน query จากที่อื่นได้ วันหนึ่งจะมีใครข้าม
 // แล้วข้อมูลการเงินของผู้ใช้คนอื่นจะหลุด
 
-export default [
+export default tseslint.config(
+  {
+    ignores: ['dist/**', 'node_modules/**', '.wrangler/**', 'coverage/**']
+  },
+
+  ...tseslint.configs.recommended,
+
   {
     files: ['src/routes/**/*.ts'],
     rules: {
@@ -20,6 +28,7 @@ export default [
       }]
     }
   },
+
   {
     files: ['src/services/**/*.ts'],
     rules: {
@@ -33,6 +42,7 @@ export default [
       }]
     }
   },
+
   {
     files: ['src/repositories/**/*.ts'],
     rules: {
@@ -46,6 +56,7 @@ export default [
       }]
     }
   },
+
   {
     files: ['src/domain/**/*.ts'],
     rules: {
@@ -59,4 +70,4 @@ export default [
       }]
     }
   }
-];
+);

@@ -1,0 +1,44 @@
+version: 2
+
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: chore
+      include: scope
+
+    # รวม minor/patch เป็น PR เดียว — ไม่งั้นจะมี PR ย่อยเต็มไปหมด
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+    ignore:
+      # สามตัวนี้ผูกกันแน่น ต้องอัปพร้อมกันเสมอ
+      #   vitest ↔ @cloudflare/vitest-pool-workers ↔ wrangler (workerd)
+      # การอัปทีละตัวข้าม major จะทำให้ test pool พังทุกครั้ง
+      # เวลาจะอัปจริง ให้ทำเป็นงานตั้งใจบน branch ของตัวเอง ไม่ใช่ปล่อยให้ bot ทำ
+      - dependency-name: vitest
+        update-types: [version-update:semver-major]
+      - dependency-name: "@cloudflare/vitest-pool-workers"
+        update-types: [version-update:semver-major]
+      - dependency-name: wrangler
+        update-types: [version-update:semver-major]
+
+      # major ของสองตัวนี้มักมาพร้อม flat-config / API ที่เปลี่ยน
+      - dependency-name: eslint
+        update-types: [version-update:semver-major]
+      - dependency-name: typescript-eslint
+        update-types: [version-update:semver-major]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: chore
