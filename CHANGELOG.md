@@ -14,12 +14,18 @@
 - View `pocket_net_inflow` — ตัดขาโยกเงินออก กันการปลดหมุดหมายด้วยการย้ายเงิน
 - `domain/money.ts` — เงินเป็นจำนวนเต็มสตางค์ · `splitProrata()` ที่ผลรวมเท่ายอดเต็มเสมอ
 - `domain/id.ts` — ULID จาก `monotonicFactory` · `idCreatedAt()` สำหรับ debug
+- `repositories/pocket.repository.ts` — สร้าง/อ่านกระเป๋า กรองสิทธิ์ผ่าน `pocket_member` อัตโนมัติ · อ่านยอดจาก view `pocket_balance` ไม่คำนวณเอง
+- ชุดทดสอบ repository บน D1 จริง (workerd + Miniflare) ผ่าน `@cloudflare/vitest-pool-workers`
 - กฎ dependency ระหว่างชั้น บังคับด้วย ESLint
 - `CLAUDE.md` ระดับโฟลเดอร์ LINE และระดับโปรเจกต์
+
+### Fixed
+- `bahtToSatang('')` เดิมคืน `0` เงียบ ๆ (`Number('')` = 0) ตอนนี้โยน error ตามที่ควร
 
 ### Security
 - `.gitignore` กัน `.dev.vars` · `.env` · `docs/private/` · ไฟล์ข้อมูลการเงินที่ export มาทดสอบ
 - บันทึกกฎว่า provider ของบอทกับ LIFF ต้องเป็นตัวเดียวกัน
+- test พิสูจน์ว่าผู้ใช้อ่านกระเป๋าของผู้ใช้อื่นไม่ได้ — `getPocket` คืน `null` · `listPockets` ไม่ปนกระเป๋าคนอื่น
 
 ---
 
