@@ -27,8 +27,11 @@ updates:
         update-types: [version-update:semver-major]
       - dependency-name: "@cloudflare/vitest-pool-workers"
         update-types: [version-update:semver-major]
+      # wrangler ขยับพร้อม pool-workers เท่านั้น — pool-workers hard-pin
+      # wrangler ไว้เป๊ะ ถ้าปล่อยให้ direct ขยับเดี่ยวจะได้ wrangler สองตัว
+      # (miniflare ซ้อน · ช่องโหว่ย้อนกลับ) การ pin ใน package.json
+      # กัน pnpm update ได้ แต่กัน PR ที่เรากด merge เองไม่ได้
       - dependency-name: wrangler
-        update-types: [version-update:semver-major]
 
       # major ของสองตัวนี้มักมาพร้อม flat-config / API ที่เปลี่ยน
       - dependency-name: eslint
