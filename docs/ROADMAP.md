@@ -45,13 +45,13 @@
 ### repositories
 
 - [x] `pocket.repository.ts` — อ่าน/สร้าง · กันรั่วข้ามผู้ใช้ทั้ง read และ `parentId`/`categoryId`
-- [x] `entry.repository.ts` — append-only · โยกเงินสองขาใน batch เดียว · กันรั่วข้ามผู้ใช้ (member + categoryId) *(รีวิวย้อนหลังบน main ค้างอยู่ — #12 เข้าโดยไม่มี branch protection)*
+- [x] `entry.repository.ts` — append-only · ห้ามแก้รายการเก่ากว่า `last_reconciled_at` · ขาโยกเงินสองขาใน batch เดียว
 - [x] `category.repository.ts` — user-scoped · archived filter
 
 ### services
 
 - [ ] `pocket.service.ts` — business rule แยกจาก repository
-- [ ] `entry.service.ts` — เงินเข้า/ออก/โยก · **ห้ามแก้รายการเก่ากว่า `last_reconciled_at`** (กฎข้อ 6 · repository ไม่ได้บังคับ อยู่ที่ชั้นนี้)
+- [ ] `entry.service.ts` — เงินเข้า/ออก/โยก
 - [ ] `reconcile.service.ts` — เทียบยอดจริงกับยอดคำนวณ · ตั้ง `last_reconciled_at`
 
 ### ขอบระบบ
