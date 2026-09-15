@@ -17,7 +17,7 @@
   },
   "dependencies": {
     "hono": "^4.6.0",
-    "ulid": "^2.3.0"
+    "ulid": "^3.0.2"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.8.19",
