@@ -20,13 +20,18 @@
     "ulid": "^2.3.0"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.8.19",
-    "@cloudflare/workers-types": "^4.20240000.0",
+    "@cloudflare/vitest-pool-workers": "^0.22.0",
+    "@cloudflare/workers-types": "^5.20260915.1",
     "eslint": "^9.0.0",
     "typescript": "^5.5.0",
     "typescript-eslint": "^8.70.0",
-    "vitest": "^2.0.0",
-    "wrangler": "^3.80.0"
+    "vitest": "^4.1.11",
+    "wrangler": "4.124.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "sharp": "^0.35.4"
+    }
   },
   "packageManager": "pnpm@9.0.0"
 }

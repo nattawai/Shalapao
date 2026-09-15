@@ -24,6 +24,8 @@
 | **migration รันบน D1 remote** | ✅ ครบ 6 ไฟล์ · `d1_migrations` track ถูกต้อง |
 | `repositories/pocket.repository.ts` + test | ✅ TDD · กันรั่วข้ามผู้ใช้ทั้ง read และ `parentId`/`categoryId` · list ซ่อน archived |
 | test harness D1 (`vitest-pool-workers`) | ✅ workerd + Miniflare D1 รัน migration จริง |
+| workers toolchain | ✅ wrangler 4.124.0 (ตัวเดียว) · vitest 4.1.11 · pool-workers 0.22 · miniflare 5 · vite 8 |
+| `pnpm audit` (dev dependency) | ✅ 0 ช่องโหว่ (จาก 30) · sharp บังคับ `>=0.35.4` ผ่าน `pnpm.overrides` |
 | LINE provider + channels | ❌ |
 | `services/` `routes/` `web/` | ❌ ยังไม่เริ่ม |
 | branch protection + public/private | ❌ ยังไม่เคาะ |
@@ -46,6 +48,8 @@
 | TDD | บังคับเฉพาะ `domain/` `services/` | บังคับ 100% กับ plumbing → คนเลิกทำทั้งหมด |
 | ปุ่มกระทบยอด | อยู่ **v0** ไม่ใช่ v2 | ถ้า v0 ไม่มี จะเลิกใช้เองภายใน 2 เดือน |
 | Milestone | % ของเป้า · step ปรับได้ · เริ่ม 10% | % ใช้ได้กับทุกเป้า ไม่ใช่แค่เงินสำรอง |
+| `wrangler` pin เป๊ะ `4.124.0` (ไม่ใส่ `^`) | ตัวเดียวในไฟล์ที่ตรึงเป๊ะ | `@cloudflare/vitest-pool-workers@0.22` hard-pin `wrangler@4.124.0` เป๊ะ · ถ้าใส่ `^` วันหนึ่ง `pnpm update`/dependabot จะบวก direct เป็น 4.13x ขณะ pool-workers ยัง 4.124.0 → มี wrangler สองตัว (miniflare ซ้อน · vuln ย้อนกลับ) · ตรึงให้ตรงกับที่ pool-workers ใช้ = การันตี wrangler ตัวเดียว · ขยับพร้อมกันเมื่ออัป pool-workers |
+| pin transitive ผ่าน `pnpm.overrides` ไม่ใช่ direct dep | `sharp` เท่านั้น (มีเพดาน `^0.35.4`) | เราไม่ได้ import sharp/vite เอง มันมากับ miniflare/vitest · การประกาศเป็น direct dep = โกหกว่าโปรเจกต์ใช้ · vite 8 มากับ vitest อยู่แล้ว (ไม่ต้อง override) · sharp native = 0.35.2 (มี advisory libheif) จึง override เป็น `^0.35.4` — ใช้ `^` ไม่ใช่ `>=` เพื่อกัน major ใหม่หลุดเข้ามาเงียบ ๆ แล้ว wrangler พัง |
 
 ---
 
@@ -105,8 +109,8 @@
 
 | เรื่อง | ระวังอะไร |
 |---|---|
-| test D1 compat date | workerd ที่ลงรองรับถึง `2025-04-17` · miniflare fallback จาก `2026-09-14` ให้ (แค่ warning ไม่ fail) |
-| CI ต้องรัน 2 project | `vitest.workspace.ts` แยก unit (node) กับ workers (workerd) · CI ต้องมี workerd โหลดได้ |
-| CI ขั้น `wrangler deploy --dry-run` | อาจ fail ถ้ายังไม่มี `dist/web` — ลบ step ออกก่อนได้ |
+| compat date | production (`wrangler.toml`) กับ test (miniflare) ตั้งตรงกันที่ `2026-08-22` เพื่อให้ test พิสูจน์ production ได้ · ค่านี้คือเพดานที่ miniflare 5 ของ pool-workers รองรับ (miniflare 5 เปลี่ยนเป็น **hard error** ถ้าเกิน ไม่ fallback แล้ว) · จะขยับให้ใหม่กว่านี้ได้เมื่อ miniflare รุ่นที่รองรับออก และตอนนั้นขยับทั้งสองที่พร้อมกัน |
+| CI ต้องรัน 2 project | `vitest.config.ts` `test.projects` แยก unit (node) กับ workers (workerd) · CI ต้องมี workerd โหลดได้ |
+| `wrangler deploy --dry-run` | ลบออกจาก CI แล้ว (รอ `dist/web`) · เพิ่มกลับตอนมี web build |
 | coverage threshold 90% | `pnpm check` ไม่ได้รัน coverage · จะเจอตอนรัน `--coverage` เท่านั้น · ลดเหลือ 80 ได้ แต่อย่าปิด |
 | LINE provider | ถ้าตั้งบอทกับ LIFF คนละ provider = `userId` คนละตัว แก้ยากมากตอนมีข้อมูลแล้ว |
