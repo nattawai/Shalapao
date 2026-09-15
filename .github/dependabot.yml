@@ -18,6 +18,8 @@ updates:
           - minor
           - patch
 
+    # หลักการ: แพ็กเกจที่ตัวอื่นประกาศ peer range หรือ pin ไว้
+    # ห้ามขยับ major เดี่ยว ๆ — ต้องขยับพร้อมตัวที่ผูกกัน บน branch ที่ตั้งใจทำ
     ignore:
       # สามตัวนี้ผูกกันแน่น ต้องอัปพร้อมกันเสมอ
       #   vitest ↔ @cloudflare/vitest-pool-workers ↔ wrangler (workerd)
@@ -37,6 +39,10 @@ updates:
       - dependency-name: eslint
         update-types: [version-update:semver-major]
       - dependency-name: typescript-eslint
+        update-types: [version-update:semver-major]
+      # typescript ต้องขยับพร้อม typescript-eslint — typescript-eslint
+      # ประกาศช่วง TS ที่รองรับพร้อมเพดานบน เกินแล้วจะเตือนและ lint เพี้ยน
+      - dependency-name: typescript
         update-types: [version-update:semver-major]
 
   - package-ecosystem: github-actions
