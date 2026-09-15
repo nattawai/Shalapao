@@ -12,9 +12,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # เวอร์ชัน pnpm อ่านจาก packageManager ใน package.json ที่เดียว
+      # ถ้าใส่ version ตรงนี้ด้วย action-setup@v4 จะปฏิเสธเพราะระบุซ้ำ
       - uses: pnpm/action-setup@v4
-        with:
-          version: 9
 
       - uses: actions/setup-node@v4
         with:
