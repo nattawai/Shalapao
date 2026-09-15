@@ -14,10 +14,9 @@ export default defineConfig(async () => {
       cloudflareTest({
         singleWorker: true,
         miniflare: {
-          // ต่างจาก wrangler.toml (production = 2026-09-14) โดยตั้งใจ:
-          // workerd ที่ miniflare 5 ฝังมารองรับ compat date สูงสุด 2026-08-22
-          // และ miniflare 5 เปลี่ยนจาก fallback+warning เป็น hard error แล้ว
-          // ถ้าตั้งเกินนี้ workerd จะไม่ start — ใช้ค่าสูงสุดที่ binary รองรับ
+          // ตรงกับ wrangler.toml (production) โดยตั้งใจ — test จึงพิสูจน์ production ได้จริง
+          // ค่านี้คือเพดานที่ workerd ใน miniflare 5 รองรับด้วย (เกินกว่านี้ start ไม่ได้)
+          // ถ้าจะขยับ production ให้ใหม่กว่านี้ ต้องรอ miniflare รุ่นที่รองรับก่อน
           compatibilityDate: '2026-08-22',
           compatibilityFlags: ['nodejs_compat'],
           d1Databases: ['DB'],

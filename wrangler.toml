@@ -1,6 +1,6 @@
 name = "shalapao"
 main = "src/index.ts"
-compatibility_date = "2026-09-14"
+compatibility_date = "2026-08-22"
 compatibility_flags = ["nodejs_compat"]
 
 # ---- D1 ----

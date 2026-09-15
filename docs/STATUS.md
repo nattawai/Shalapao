@@ -109,7 +109,7 @@
 
 | เรื่อง | ระวังอะไร |
 |---|---|
-| test D1 compat date | miniflare 5 ที่ pool-workers ฝังมา รองรับ compat date สูงสุด `2026-08-22` และ **เปลี่ยนจาก fallback+warning เป็น hard error** · test config จึงตั้ง `2026-08-22` (ต่างจาก production `2026-09-14` ใน `wrangler.toml` ตั้งใจ) · เมื่อ miniflare รุ่นใหม่รองรับ `2026-09-14` ค่อยขยับให้ตรง |
+| compat date | production (`wrangler.toml`) กับ test (miniflare) ตั้งตรงกันที่ `2026-08-22` เพื่อให้ test พิสูจน์ production ได้ · ค่านี้คือเพดานที่ miniflare 5 ของ pool-workers รองรับ (miniflare 5 เปลี่ยนเป็น **hard error** ถ้าเกิน ไม่ fallback แล้ว) · จะขยับให้ใหม่กว่านี้ได้เมื่อ miniflare รุ่นที่รองรับออก และตอนนั้นขยับทั้งสองที่พร้อมกัน |
 | CI ต้องรัน 2 project | `vitest.config.ts` `test.projects` แยก unit (node) กับ workers (workerd) · CI ต้องมี workerd โหลดได้ |
 | `wrangler deploy --dry-run` | ลบออกจาก CI แล้ว (รอ `dist/web`) · เพิ่มกลับตอนมี web build |
 | coverage threshold 90% | `pnpm check` ไม่ได้รัน coverage · จะเจอตอนรัน `--coverage` เท่านั้น · ลดเหลือ 80 ได้ แต่อย่าปิด |
