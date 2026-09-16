@@ -119,3 +119,4 @@
 | `wrangler deploy --dry-run` | ลบออกจาก CI แล้ว (รอ `dist/web`) · เพิ่มกลับตอนมี web build |
 | coverage threshold 90% | `pnpm check` ไม่ได้รัน coverage · จะเจอตอนรัน `--coverage` เท่านั้น · ลดเหลือ 80 ได้ แต่อย่าปิด |
 | LINE provider | ถ้าตั้งบอทกับ LIFF คนละ provider = `userId` คนละตัว แก้ยากมากตอนมีข้อมูลแล้ว |
+| `dist/web/index.html` | หน้า smoke test **ชั่วคราว** สำหรับ first deploy (โหลด LIFF SDK จาก CDN · ไม่มี build) · **แทนที่** ตอนทำหน้าจอจริง (LIFF/React) ไม่ใช่ต่อยอดจากมัน · `/api/me` ก็เป็น route ชั่วคราวคู่กัน |
