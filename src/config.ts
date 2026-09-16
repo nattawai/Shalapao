@@ -14,6 +14,7 @@ export type Env = {
   LINE_CHANNEL_SECRET: string;
   LINE_CHANNEL_ACCESS_TOKEN: string;
   LIFF_ID: string;
+  LIFF_LOGIN_CHANNEL_ID: string;
 };
 
 export type AppConfig = {
@@ -22,6 +23,7 @@ export type AppConfig = {
     channelSecret: string;
     accessToken: string;
     liffId: string;
+    loginChannelId: string;
   };
 };
 
@@ -36,7 +38,9 @@ export function loadConfig(env: Env): AppConfig {
     line: {
       channelSecret: required(env.LINE_CHANNEL_SECRET, 'LINE_CHANNEL_SECRET'),
       accessToken: required(env.LINE_CHANNEL_ACCESS_TOKEN, 'LINE_CHANNEL_ACCESS_TOKEN'),
-      liffId: required(env.LIFF_ID, 'LIFF_ID')
+      liffId: required(env.LIFF_ID, 'LIFF_ID'),
+      // ไม่ใช่ความลับ (client_id ที่ใช้ verify ID token) — อยู่ใน wrangler.toml [vars]
+      loginChannelId: required(env.LIFF_LOGIN_CHANNEL_ID, 'LIFF_LOGIN_CHANNEL_ID')
     }
   };
 }
