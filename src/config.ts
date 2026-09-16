@@ -1,10 +1,9 @@
 /**
- * อ่าน environment ที่เดียวในระบบ
+ * อ่าน environment ที่เดียวในระบบ (CLAUDE.md §2.1)
  *
- * ห้ามอ่าน c.env กระจัดกระจายทั่วโค้ด เพราะ:
- * 1. ไม่รู้ว่าโปรเจกต์ต้องการตัวแปรอะไรบ้างจนกว่าจะรันแล้วพัง
- * 2. ตอนเขียน test ต้อง mock หลายที่
- * 3. เสี่ยงเผลอ log ค่า secret ในจุดที่ลืมไป
+ * แต่ตรวจ "เฉพาะตัวที่ผู้เรียกใช้จริง ณ จุดที่ใช้" ไม่ตรวจรวดเดียวทั้งหมด:
+ * secret ของบอท (v3) ยังไม่ถูกตั้งโดยตั้งใจ · ถ้าตรวจรวม auth (v0) ที่ใช้แค่
+ * LIFF_LOGIN_CHANNEL_ID จะพังทั้งที่ไม่ได้แตะ secret บอทเลย
  */
 
 export type Env = {
@@ -13,18 +12,7 @@ export type Env = {
   APP_ENV: string;
   LINE_CHANNEL_SECRET: string;
   LINE_CHANNEL_ACCESS_TOKEN: string;
-  LIFF_ID: string;
   LIFF_LOGIN_CHANNEL_ID: string;
-};
-
-export type AppConfig = {
-  isProduction: boolean;
-  line: {
-    channelSecret: string;
-    accessToken: string;
-    liffId: string;
-    loginChannelId: string;
-  };
 };
 
 function required(value: string | undefined, name: string): string {
@@ -32,15 +20,19 @@ function required(value: string | undefined, name: string): string {
   return value;
 }
 
-export function loadConfig(env: Env): AppConfig {
+// LINE Login (auth · v0) ใช้ตัวเดียว: client_id ที่ใช้ verify ID token
+// ไม่ใช่ความลับ — อยู่ใน wrangler.toml [vars]
+export function lineLoginChannelId(env: Env): string {
+  return required(env.LIFF_LOGIN_CHANNEL_ID, 'LIFF_LOGIN_CHANNEL_ID');
+}
+
+export type LineBotCredentials = { channelSecret: string; accessToken: string };
+
+// Messaging API (บอท · v3 webhook) เท่านั้น — v0 ยังไม่ตั้ง secret พวกนี้
+// จึงต้องตรวจตอนเข้าเส้นทางบอทเท่านั้น ไม่ใช่ทุก request
+export function lineBotCredentials(env: Env): LineBotCredentials {
   return {
-    isProduction: env.APP_ENV === 'production',
-    line: {
-      channelSecret: required(env.LINE_CHANNEL_SECRET, 'LINE_CHANNEL_SECRET'),
-      accessToken: required(env.LINE_CHANNEL_ACCESS_TOKEN, 'LINE_CHANNEL_ACCESS_TOKEN'),
-      liffId: required(env.LIFF_ID, 'LIFF_ID'),
-      // ไม่ใช่ความลับ (client_id ที่ใช้ verify ID token) — อยู่ใน wrangler.toml [vars]
-      loginChannelId: required(env.LIFF_LOGIN_CHANNEL_ID, 'LIFF_LOGIN_CHANNEL_ID')
-    }
+    channelSecret: required(env.LINE_CHANNEL_SECRET, 'LINE_CHANNEL_SECRET'),
+    accessToken: required(env.LINE_CHANNEL_ACCESS_TOKEN, 'LINE_CHANNEL_ACCESS_TOKEN')
   };
 }
