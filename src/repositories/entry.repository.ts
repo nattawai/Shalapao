@@ -165,6 +165,16 @@ export async function createTransfer(
   userId: string,
   input: CreateTransferInput
 ): Promise<{ outflow: Entry; inflow: Entry }> {
+  // ทิศทางกำหนดด้วยต้นทาง/ปลายทาง จำนวนจึงต้องเป็นบวกเสมอ · ยอดติดลบไหลย้อน
+  // (−(−n) เข้าต้นทาง) โดย DB CHECK amount <> 0 จับไม่ได้ · 0 DB จับอยู่แล้ว
+  if (input.amountSatang <= 0) {
+    throw new Error('จำนวนเงินโยกต้องมากกว่า 0 — ทิศทางกำหนดด้วยต้นทาง/ปลายทาง ไม่ใช่เครื่องหมาย');
+  }
+  // โยกเข้ากระเป๋าเดียวกัน = สองแถวหักล้างกันในกระเป๋าเดียว = ledger ขยะ
+  if (input.fromPocketId === input.toPocketId) {
+    throw new Error('โยกเข้ากระเป๋าเดียวกันไม่ได้');
+  }
+
   // ต้องเป็นสมาชิกทั้งสองกระเป๋า — โยกเข้ากระเป๋าคนอื่นไม่ได้
   await assertMember(db, userId, input.fromPocketId);
   await assertMember(db, userId, input.toPocketId);

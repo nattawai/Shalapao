@@ -219,3 +219,32 @@ describe('createTransfer — โยกเงินสองขาใน batch �
     expect(await countEntries()).toBe(before);
   });
 });
+
+// ทิศทางกำหนดด้วยต้นทาง/ปลายทาง ไม่ใช่เครื่องหมาย · DB บังคับแค่ amount <> 0
+// ยอดติดลบจึงไหลย้อน (−(−500) = +500 เข้าต้นทาง) โดย DB ไม่ทัก · โยกเข้าตัวเอง
+// สร้างสองแถวในกระเป๋าเดียว = ledger ขยะ · ทั้งคู่ต้องกันที่ชั้นนี้ก่อนถึง batch
+describe('createTransfer — ปฏิเสธ input ที่ทำ ledger พัง', () => {
+  test('amountSatang ติดลบ → ปฏิเสธ ไม่มีขาไหนเกิด', async () => {
+    const dest = await seedPocket(alice);
+    const before = await countEntries();
+    await expect(
+      createTransfer(db, alice, { fromPocketId: alicePocket, toPocketId: dest, amountSatang: -500 })
+    ).rejects.toThrow();
+    expect(await countEntries()).toBe(before);
+  });
+
+  test('amountSatang เป็น 0 → ปฏิเสธ', async () => {
+    const dest = await seedPocket(alice);
+    await expect(
+      createTransfer(db, alice, { fromPocketId: alicePocket, toPocketId: dest, amountSatang: 0 })
+    ).rejects.toThrow();
+  });
+
+  test('โยกเข้ากระเป๋าตัวเอง (from === to) → ปฏิเสธ ไม่มีแถวเกิด', async () => {
+    const before = await countEntries();
+    await expect(
+      createTransfer(db, alice, { fromPocketId: alicePocket, toPocketId: alicePocket, amountSatang: 100 })
+    ).rejects.toThrow();
+    expect(await countEntries()).toBe(before);
+  });
+});
