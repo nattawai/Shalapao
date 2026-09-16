@@ -71,10 +71,10 @@
 
 ### LINE + deploy
 
-- [ ] สร้าง provider + 2 channels **ภายใต้ provider เดียวกัน** → จดลง `..\_docs\line-provider-channels.md`
-- [ ] LINE OA: ปิด auto-reply/greeting · เปิด Webhook · Response mode = Bot
-- [ ] deploy ขึ้น Cloudflare Workers
-- [ ] ตั้ง Webhook URL + LIFF Endpoint URL จริง (ตอนนี้ยังเป็น `https://example.com`)
+- [x] สร้าง provider + 2 channels **ภายใต้ provider เดียวกัน** → จดลง `..\_docs\line-provider-channels.md`
+- [x] LINE OA: ปิด auto-reply/greeting · Response mode = Bot
+- [x] deploy ขึ้น Cloudflare Workers — `https://shalapao.nattawai157.workers.dev`
+- [x] ตั้ง LIFF Endpoint URL จริง · พิสูจน์แล้วจากมือถือ: LIFF → verify → D1 → คืน `userId` (Webhook URL ไม่ต้องตอนนี้ — อยู่ v3 พร้อมบอท)
 
 ### ปิดเฟส
 
@@ -108,7 +108,7 @@
 ## v3 → `0.4.0` — บอทและกระเป๋าร่วม
 
 - [ ] บอท: พิมพ์ข้อความ → บันทึกรายการ
-- [ ] LINE webhook (รับข้อความจากบอท) + **ตรวจ signature ทุก request**
+- [ ] LINE webhook (รับข้อความจากบอท) + **ตรวจ signature ทุก request** · ตั้ง Webhook URL + เปิดสวิตช์ Webhook ใน OA Manager ตอนนี้
 - [ ] อ่านสลิป (vision) → **อ่านแล้วลบทันที** เก็บเฉพาะข้อมูลที่สกัดออกมา
 - [ ] กระเป๋าร่วม + เชิญสมาชิก
 - [ ] สิทธิ์ในกระเป๋าร่วม (ใครแก้ได้ ใครดูได้อย่างเดียว)
