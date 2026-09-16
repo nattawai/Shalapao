@@ -2,7 +2,7 @@ import type { MiddlewareHandler } from 'hono';
 import type { Env } from '../config';
 import { AuthError, authenticate, type VerifyIdToken } from '../services/auth.service';
 
-export type AuthVariables = { userId: string };
+export type AuthVariables = { userId: string; displayName: string };
 export type AuthEnv = { Bindings: Env; Variables: AuthVariables };
 
 export type AuthMiddlewareDeps = {
@@ -17,7 +17,7 @@ export type AuthMiddlewareDeps = {
 export function authMiddleware(deps: AuthMiddlewareDeps): MiddlewareHandler<AuthEnv> {
   return async (c, next) => {
     try {
-      const userId = await authenticate(
+      const { userId, displayName } = await authenticate(
         {
           verifyIdToken: deps.verifyIdToken,
           upsertUser: (input) => deps.upsertUser(c.env.DB, input),
@@ -26,6 +26,7 @@ export function authMiddleware(deps: AuthMiddlewareDeps): MiddlewareHandler<Auth
         c.req.header('Authorization')
       );
       c.set('userId', userId);
+      c.set('displayName', displayName);
     } catch (err) {
       if (err instanceof AuthError) return c.json({ error: 'unauthorized' }, 401);
       throw err;

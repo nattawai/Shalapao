@@ -10,7 +10,7 @@ export default defineConfig({
       {
         test: {
           name: 'unit',
-          include: ['src/domain/**/*.test.ts', 'src/services/**/*.test.ts', 'src/lib/**/*.test.ts'],
+          include: ['src/domain/**/*.test.ts', 'src/services/**/*.test.ts', 'src/lib/**/*.test.ts', 'src/routes/**/*.test.ts'],
           environment: 'node'
         }
       },

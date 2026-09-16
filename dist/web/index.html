@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="th">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Shalapao — auth smoke test</title>
+  </head>
+  <body>
+    <h1>Shalapao auth smoke test</h1>
+    <p>หน้าทดสอบชั่วคราวสำหรับ first deploy — พิสูจน์ว่า LINE ID token วิ่งผ่าน <code>/api/me</code> ได้จริง ไม่ใช่หน้าจอจริง</p>
+    <pre id="out">กำลังเริ่ม…</pre>
+
+    <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+    <script>
+      const out = document.getElementById('out');
+      function show(label, data) {
+        const text = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+        out.textContent += '\n\n=== ' + label + ' ===\n' + text;
+      }
+      (async function () {
+        out.textContent = 'liff.init…';
+        try {
+          await liff.init({ liffId: '2011608646-o7VPOT1u' });
+          show('liff.init', 'ok · isLoggedIn=' + liff.isLoggedIn());
+          if (!liff.isLoggedIn()) {
+            show('login', 'ยังไม่ล็อกอิน → เรียก liff.login()');
+            liff.login();
+            return;
+          }
+          const token = liff.getIDToken();
+          // ไม่โชว์ค่า token เต็ม (เป็น bearer credential) — พอรู้ว่าได้มาแล้ว
+          show('getIDToken', token ? 'ได้ token (ยาว ' + token.length + ' ตัว)' : 'ไม่ได้ token — ตรวจ scope openid/profile');
+          if (!token) return;
+          const res = await fetch('/api/me', { headers: { Authorization: 'Bearer ' + token } });
+          show('GET /api/me → HTTP ' + res.status, await res.text());
+        } catch (err) {
+          show('ERROR', err && err.message ? err.message : String(err));
+        }
+      })();
+    </script>
+  </body>
+</html>

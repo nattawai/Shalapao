@@ -60,10 +60,10 @@ describe('authenticate', () => {
     await expect(authenticate(d, 'Bearer x')).rejects.toBeInstanceOf(AuthError);
   });
 
-  test('token ถูกต้อง → คืน app_user.id · upsert ด้วย sub + name จาก token', async () => {
+  test('token ถูกต้อง → คืน { userId, displayName } · upsert ด้วย sub + name จาก token', async () => {
     const upsertUser = vi.fn(async () => ({ id: 'APP-123' }));
-    const id = await authenticate(deps({ upsertUser }), 'Bearer good');
-    expect(id).toBe('APP-123');
+    const result = await authenticate(deps({ upsertUser }), 'Bearer good');
+    expect(result).toEqual({ userId: 'APP-123', displayName: 'ไว' });
     expect(upsertUser).toHaveBeenCalledWith({ lineUserId: 'Uline123', displayName: 'ไว' });
   });
 });

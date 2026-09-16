@@ -22,7 +22,7 @@ function appWith(over: Partial<AuthMiddlewareDeps>): Hono<AuthEnv> {
   );
   app.post('/api/me', async (c) => {
     const body = (await c.req.json()) as { userId?: string };
-    return c.json({ resolved: c.get('userId'), bodyUserId: body.userId ?? null });
+    return c.json({ resolved: c.get('userId'), displayName: c.get('displayName'), bodyUserId: body.userId ?? null });
   });
   return app;
 }
@@ -52,9 +52,10 @@ describe('authMiddleware', () => {
       runEnv
     );
     expect(res.status).toBe(200);
-    const out = (await res.json()) as { resolved: string; bodyUserId: string };
+    const out = (await res.json()) as { resolved: string; displayName: string; bodyUserId: string };
     expect(out.resolved).toBe('APP-Ureal');
     expect(out.resolved).not.toBe('EVIL');
+    expect(out.displayName).toBe('ไว');
   });
 
   // 🔴 fail closed: LINE ล่ม / token ปลอม (verify โยน) → 401 ไม่ปล่อยผ่าน
