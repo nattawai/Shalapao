@@ -58,7 +58,6 @@
 ### ขอบระบบ
 
 - [ ] `zod` validate ทุก input ที่ขอบ _(รออนุมัติเพิ่ม dependency — `STATUS.md` §4)_
-- [ ] LINE webhook + **ตรวจ signature ทุก request**
 - [x] LINE Login → map `userId` เป็น `app_user` — verify ID token กับ LINE · upsert by `line_user_id`
 - [x] auth middleware ยัด `userId` ให้ทุก route ใต้ `/api/*` · `userId` มาจาก token ที่ LINE เซ็นเท่านั้น (ไม่รับจาก client) · fail closed เมื่อ LINE ล่ม
 
