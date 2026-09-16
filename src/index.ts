@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { loadConfig } from './config';
 import { verifyLineIdToken } from './lib/line';
 import { authMiddleware, type AuthEnv } from './middleware/auth';
+import { me } from './routes/me.route';
 import { upsertUserByLineId } from './repositories/app-user.repository';
 
 const app = new Hono<AuthEnv>();
@@ -29,6 +30,10 @@ app.use(
     getChannelId: (env) => loadConfig(env).line.loginChannelId
   })
 );
+
+// ชั่วคราว: smoke test สำหรับ first deploy — พิสูจน์ auth ด้วย ID token จริง
+// ต้องถูกแทนที่ตอนทำหน้าจอจริง ไม่ใช่ต่อยอดจากมัน
+app.get('/api/me', me);
 
 // API ทั้งหมดอยู่ใต้ /api — routes/ จะมาต่อที่นี่
 // app.route('/api/pockets', pocketRoutes);

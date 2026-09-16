@@ -34,10 +34,12 @@ function parseBearer(header: string | null | undefined): string {
 // ตัวตนมาจาก ID token ที่ LINE เซ็นแล้วทางเดียว — ไม่รับ userId จาก client เด็ดขาด
 // (ข้อ 5 กันรั่วข้ามผู้ใช้) · verify ล้มด้วยเหตุใดก็ตาม (LINE ล่ม/timeout/token ปลอม)
 // ต้อง fail closed → AuthError ห้ามปล่อยผ่าน
+export type AuthedUser = { userId: string; displayName: string };
+
 export async function authenticate(
   deps: AuthDeps,
   authorizationHeader: string | null | undefined
-): Promise<string> {
+): Promise<AuthedUser> {
   const token = parseBearer(authorizationHeader);
 
   let claims: LineIdClaims;
@@ -56,6 +58,7 @@ export async function authenticate(
 
   if (!claims.sub) throw new AuthError('ID token ไม่มี sub');
 
-  const { id } = await deps.upsertUser({ lineUserId: claims.sub, displayName: claims.name ?? '' });
-  return id;
+  const displayName = claims.name ?? '';
+  const { id } = await deps.upsertUser({ lineUserId: claims.sub, displayName });
+  return { userId: id, displayName };
 }
