@@ -1,6 +1,6 @@
 # STATUS — Shalapao
 
-อัปเดตล่าสุด: 2026-09-15
+อัปเดตล่าสุด: 2026-09-16
 > **อ่านไฟล์นี้ก่อนเริ่มงานทุกครั้ง** — บอกว่าตอนนี้อยู่ตรงไหน ตัดสินใจอะไรไปแล้ว และทำอะไรต่อ
 > Repo: https://github.com/nattawai/Shalapao
 
@@ -50,6 +50,8 @@
 | Milestone | % ของเป้า · step ปรับได้ · เริ่ม 10% | % ใช้ได้กับทุกเป้า ไม่ใช่แค่เงินสำรอง |
 | `wrangler` pin เป๊ะ `4.124.0` (ไม่ใส่ `^`) | ตัวเดียวในไฟล์ที่ตรึงเป๊ะ | `@cloudflare/vitest-pool-workers@0.22` hard-pin `wrangler@4.124.0` เป๊ะ · ถ้าใส่ `^` วันหนึ่ง `pnpm update`/dependabot จะบวก direct เป็น 4.13x ขณะ pool-workers ยัง 4.124.0 → มี wrangler สองตัว (miniflare ซ้อน · vuln ย้อนกลับ) · ตรึงให้ตรงกับที่ pool-workers ใช้ = การันตี wrangler ตัวเดียว · ขยับพร้อมกันเมื่ออัป pool-workers |
 | pin transitive ผ่าน `pnpm.overrides` ไม่ใช่ direct dep | `sharp` เท่านั้น (มีเพดาน `^0.35.4`) | เราไม่ได้ import sharp/vite เอง มันมากับ miniflare/vitest · การประกาศเป็น direct dep = โกหกว่าโปรเจกต์ใช้ · vite 8 มากับ vitest อยู่แล้ว (ไม่ต้อง override) · sharp native = 0.35.2 (มี advisory libheif) จึง override เป็น `^0.35.4` — ใช้ `^` ไม่ใช่ `>=` เพื่อกัน major ใหม่หลุดเข้ามาเงียบ ๆ แล้ว wrangler พัง |
+| ด่านกันแก้งวดที่กระทบยอดแล้ว (ข้อตกลงข้อ 6) อยู่ที่ **repository** ไม่ใช่ service | guard `occurred_on <= last_reconciled_at` ใน `entry.repository` (createEntry + createTransfer เช็คทั้งสองกระเป๋า) | insert เกิดที่ไฟล์นั้นที่เดียว — ด่านต้องอยู่ตรง insert เหมือน user filter · service เพิ่ม error ที่อ่านง่ายทีหลังได้ แต่ห้ามเป็นด่านเดียว |
+| `last_reconciled_at` = วันที่ปิดงวดแล้วเท่านั้น (ห้ามวันนี้/อนาคต) · เก็บเป็น YYYY-MM-DD | `reconcile.service` บังคับ "ห้ามวันนี้/อนาคต" ตอนตั้งเส้น · trigger 0007 บังคับรูปแบบที่ D1 | ถ้าเส้น = วันนี้ รายการของวันนี้จะโดนปฏิเสธ → ผู้ใช้ต้องโกหกวันใน ledger = ทำลายสิ่งเดียวที่แอปสัญญา · เส้นเป็นอดีตเสมอจึงไม่บล็อกรายการวันนี้ และ entry ปรับยอด (ลงวันนี้) ไม่ชนเส้นตั้งแต่แรก ไม่ต้องพึ่งลำดับการเรียก · `date('now')` ของ SQLite เป็น UTC เชื่อไม่ได้ กฎ "วันนี้" จึงอยู่ที่ service ไม่ใช่ migration |
 
 ---
 

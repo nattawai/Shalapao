@@ -1,6 +1,6 @@
 # ROADMAP — Shalapao
 
-อัปเดตล่าสุด: 2026-09-15
+อัปเดตล่าสุด: 2026-09-16
 
 > **ไฟล์นี้ตอบว่า "เหลืออะไร"** — `STATUS.md` ตอบว่า "ตัดสินใจอะไรไปแล้ว"
 > ถ้าสองไฟล์ขัดกัน ให้เชื่อ `STATUS.md` แล้วมาแก้ไฟล์นี้
@@ -40,19 +40,20 @@
 
 - [x] `money.ts` — สตางค์จำนวนเต็ม · `splitProrata()` ผลรวมตรงเสมอ
 - [x] `id.ts` — ULID monotonic
-- [ ] `id.ts` ยังไม่มี test — `domain/` บังคับ TDD ตาม `CLAUDE.md` §4.1
+- [x] `id.ts` test ครบ — monotonic ordering + timezone rollover (Asia/Bangkok)
 
 ### repositories
 
 - [x] `pocket.repository.ts` — อ่าน/สร้าง · กันรั่วข้ามผู้ใช้ทั้ง read และ `parentId`/`categoryId`
-- [x] `entry.repository.ts` — append-only · ห้ามแก้รายการเก่ากว่า `last_reconciled_at` · ขาโยกเงินสองขาใน batch เดียว
+- [x] `entry.repository.ts` — append-only · โยกเงินสองขาใน batch เดียว · กันลงรายการทับงวดที่กระทบยอดแล้ว (`last_reconciled_at` เกณฑ์ `<=` · เช็คทั้งสองกระเป๋าตอนโยก) · กัน transfer ยอด ≤ 0 และโยกเข้าตัวเอง
 - [x] `category.repository.ts` — user-scoped · archived filter
+- [ ] แก้/ลบรายการที่กรอกผิด — reversal entry (`reverses_id`) + soft delete (`deleted_at`) · ยังไม่มีฟังก์ชันใน `entry.repository.ts`
 
 ### services
 
 - [ ] `pocket.service.ts` — business rule แยกจาก repository
 - [ ] `entry.service.ts` — เงินเข้า/ออก/โยก
-- [ ] `reconcile.service.ts` — เทียบยอดจริงกับยอดคำนวณ · ตั้ง `last_reconciled_at`
+- [ ] `reconcile.service.ts` — เทียบยอดจริงกับยอดคำนวณ · ตั้ง `last_reconciled_at` (ต้องเป็นวันที่ปิดงวดแล้ว ห้ามวันนี้/อนาคต · เขียนเป็น YYYY-MM-DD — trigger 0007 บังคับรูปแบบ)
 
 ### ขอบระบบ
 
