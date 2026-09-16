@@ -10,16 +10,16 @@
 
 ## สรุป
 
-| เฟส | เวอร์ชัน |
-|---|---|
-| **v0 — ใช้เองได้จริง** | `0.1.0` |
-| v1 — เป้าหมายและแจ้งเตือน | `0.2.0` |
-| v2 — แบ่งเงินเดือนอัตโนมัติ | `0.3.0` |
-| v3 — บอทและกระเป๋าร่วม | `0.4.0` |
-| v4 — ภาษีและแผนเสียเงิน | `0.5.0` |
-| เปิดให้คนนอกใช้ | `1.0.0` |
+| เฟส                         | เวอร์ชัน |
+| --------------------------- | -------- |
+| **v0 — ใช้เองได้จริง**      | `0.1.0`  |
+| v1 — เป้าหมายและแจ้งเตือน   | `0.2.0`  |
+| v2 — แบ่งเงินเดือนอัตโนมัติ | `0.3.0`  |
+| v3 — บอทและกระเป๋าร่วม      | `0.4.0`  |
+| v4 — ภาษีและแผนเสียเงิน     | `0.5.0`  |
+| เปิดให้คนนอกใช้             | `1.0.0`  |
 
-🔴 **ติดอยู่ที่:** LINE provider ยังไม่สร้าง → ทำ `routes/` และ LIFF ต่อไม่ได้
+▶️ **ถัดไป:** provider + LINE Login channel + LIFF พร้อมแล้ว · backend auth (verify ID token) เสร็จ → เริ่ม `routes/` + LIFF frontend ได้
 
 ---
 
@@ -57,9 +57,10 @@
 
 ### ขอบระบบ
 
-- [ ] `zod` validate ทุก input ที่ขอบ *(รออนุมัติเพิ่ม dependency — `STATUS.md` §4)*
-- [ ] LINE Login → map `userId` เป็น `app_user`
-- [ ] auth middleware ที่ยัด `userId` ให้ repository อัตโนมัติ
+- [ ] `zod` validate ทุก input ที่ขอบ _(รออนุมัติเพิ่ม dependency — `STATUS.md` §4)_
+- [ ] LINE webhook + **ตรวจ signature ทุก request**
+- [x] LINE Login → map `userId` เป็น `app_user` — verify ID token กับ LINE · upsert by `line_user_id`
+- [x] auth middleware ยัด `userId` ให้ทุก route ใต้ `/api/*` · `userId` มาจาก token ที่ LINE เซ็นเท่านั้น (ไม่รับจาก client) · fail closed เมื่อ LINE ล่ม
 
 ### หน้าจอ (LIFF)
 

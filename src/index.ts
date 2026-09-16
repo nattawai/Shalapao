@@ -1,15 +1,10 @@
 import { Hono } from 'hono';
+import { loadConfig } from './config';
+import { verifyLineIdToken } from './lib/line';
+import { authMiddleware, type AuthEnv } from './middleware/auth';
+import { upsertUserByLineId } from './repositories/app-user.repository';
 
-export type Bindings = {
-  DB: D1Database;
-  ASSETS: Fetcher;
-  APP_ENV: string;
-  LINE_CHANNEL_SECRET: string;
-  LINE_CHANNEL_ACCESS_TOKEN: string;
-  LIFF_ID: string;
-};
-
-const app = new Hono<{ Bindings: Bindings }>();
+const app = new Hono<AuthEnv>();
 
 app.get('/health', (c) =>
   c.json({ ok: true, env: c.env.APP_ENV, at: new Date().toISOString() })
@@ -22,6 +17,18 @@ app.get('/health/db', async (c) => {
   ).all<{ name: string }>();
   return c.json({ ok: true, objects: r.results.map((x) => x.name) });
 });
+
+// ทุก route ใต้ /api ต้องผ่าน auth ก่อน — wire ไว้ก่อนมี route จริง เพื่อให้ route
+// ที่เกิดหลังจากนี้ถูกป้องกันโดยโครงสร้าง ไม่ใช่โดยการจำไปใส่เอง · userId มาจาก
+// ID token ที่ LINE เซ็นแล้วทางเดียว ยัดลง c.get('userId') ให้ทุก route
+app.use(
+  '/api/*',
+  authMiddleware({
+    verifyIdToken: verifyLineIdToken,
+    upsertUser: upsertUserByLineId,
+    getChannelId: (env) => loadConfig(env).line.loginChannelId
+  })
+);
 
 // API ทั้งหมดอยู่ใต้ /api — routes/ จะมาต่อที่นี่
 // app.route('/api/pockets', pocketRoutes);

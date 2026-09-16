@@ -24,3 +24,5 @@ binding = "ASSETS"
 
 [vars]
 APP_ENV = "development"
+# client_id ของ LINE Login channel · ใช้ verify ID token · ไม่ใช่ความลับ (ห้ามใช้ secret put)
+LIFF_LOGIN_CHANNEL_ID = "2011608646"

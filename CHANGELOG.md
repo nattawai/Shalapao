@@ -18,6 +18,7 @@
 - ชุดทดสอบ repository บน D1 จริง (workerd + Miniflare) ผ่าน `@cloudflare/vitest-pool-workers`
 - กฎ dependency ระหว่างชั้น บังคับด้วย ESLint
 - `CLAUDE.md` ระดับโฟลเดอร์ LINE และระดับโปรเจกต์
+- LINE Login — ยืนยันตัวตนด้วย ID token ที่ LINE เซ็น · ทุก request ใต้ `/api/*` แนบ `Authorization: Bearer <ID token>` · map เป็น `app_user` อัตโนมัติ (สร้างตัวตนครั้งแรกที่ login · ชื่อเปลี่ยนเมื่อเปลี่ยนจริง)
 
 ### Changed
 - `listPockets` ซ่อนกระเป๋าที่ archive แล้วโดยค่าเริ่มต้น · ขอเห็นได้ผ่าน option `includeArchived`
@@ -34,6 +35,8 @@
 - test พิสูจน์ว่าผู้ใช้อ่านกระเป๋าของผู้ใช้อื่นไม่ได้ — `getPocket` คืน `null` · `listPockets` ไม่ปนกระเป๋าคนอื่น
 - `createPocket` ปฏิเสธ `parentId`/`categoryId` ที่เป็นของผู้ใช้อื่น — FK เช็คแค่ว่าแถวมีอยู่ ไม่เช็คเจ้าของ จึงเป็นช่องรั่วข้ามผู้ใช้ถ้าไม่กันที่ repository
 - อัป workers toolchain (wrangler 4 · vitest 4 · miniflare 5 · vite 8) — ช่องโหว่ dev dependency ที่ `pnpm audit` พบหายครบ (30 → 0) และเหลือ wrangler ตัวเดียว
+- `userId` มาจาก ID token ที่ LINE เซ็นแล้วทางเดียว — ไม่รับจาก body/header/query ของ client (บังคับด้วย test) · กันการปลอมตัวเป็นผู้ใช้อื่น
+- auth **fail closed** — LINE `/verify` timeout หรือตอบ 5xx → ปฏิเสธ (401) ไม่ปล่อยผ่าน · ตอบ 401 แบบไม่บอกเหตุผล เพื่อไม่ให้ผู้โจมตีรู้ว่าพลาดข้อไหน · เพิ่มกฎ ESLint กัน `middleware/` เรียก `repositories/` ตรง ๆ
 
 ---
 
