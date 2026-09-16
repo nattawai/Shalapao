@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { loadConfig } from './config';
+import { lineLoginChannelId } from './config';
 import { verifyLineIdToken } from './lib/line';
 import { authMiddleware, type AuthEnv } from './middleware/auth';
 import { me } from './routes/me.route';
@@ -27,7 +27,7 @@ app.use(
   authMiddleware({
     verifyIdToken: verifyLineIdToken,
     upsertUser: upsertUserByLineId,
-    getChannelId: (env) => loadConfig(env).line.loginChannelId
+    getChannelId: (env) => lineLoginChannelId(env)
   })
 );
 
