@@ -98,6 +98,21 @@ async function assertOwnsCategory(db: D1Database, userId: string, categoryId: st
   if (!row) throw new Error('categoryId ไม่ใช่หมวดของผู้ใช้');
 }
 
+// ข้อตกลงข้อ 6: ห้ามลงรายการทับงวดที่กระทบยอดแล้ว — occurred_on <= เส้น = ปฏิเสธ
+// เส้นเป็นวันที่ปิดงวดแล้วเสมอ (ห้ามวันนี้/อนาคต — reconcile.service กันตอนตั้ง)
+// จึงไม่บล็อกรายการของวันนี้ · trigger (0007) การันตีเส้นเป็น YYYY-MM-DD → เทียบ
+// string ได้ตรงลำดับเวลา · การ insert เกิดที่ไฟล์นี้ที่เดียว ด่านจึงต้องอยู่ตรงนี้
+async function assertNotReconciled(db: D1Database, pocketId: string, occurredOn: string): Promise<void> {
+  const row = await db
+    .prepare('SELECT last_reconciled_at AS line FROM pocket WHERE id = ?')
+    .bind(pocketId)
+    .first<{ line: string | null }>();
+  const line = row?.line ?? null;
+  if (line !== null && occurredOn <= line) {
+    throw new Error(`ลงรายการในงวดที่กระทบยอดแล้วไม่ได้ (ถึง ${line}) — ออกรายการปรับของวันนี้แทน`);
+  }
+}
+
 export async function getEntry(db: D1Database, userId: string, entryId: string): Promise<Entry | null> {
   const row = await db
     .prepare(`${SELECT_MEMBER_ENTRY} AND e.id = ?`)
@@ -118,6 +133,9 @@ export async function createEntry(db: D1Database, userId: string, input: CreateE
   await assertMember(db, userId, input.pocketId);
   if (input.categoryId != null) await assertOwnsCategory(db, userId, input.categoryId);
 
+  const occurredOn = input.occurredOn ?? today();
+  await assertNotReconciled(db, input.pocketId, occurredOn);
+
   const id = newId();
   await db
     .prepare(
@@ -129,7 +147,7 @@ export async function createEntry(db: D1Database, userId: string, input: CreateE
       input.pocketId,
       userId,
       input.amountSatang,
-      input.occurredOn ?? today(),
+      occurredOn,
       input.categoryId ?? null,
       input.note ?? null,
       input.source ?? 'manual',
@@ -151,10 +169,15 @@ export async function createTransfer(
   await assertMember(db, userId, input.fromPocketId);
   await assertMember(db, userId, input.toPocketId);
 
+  const occurredOn = input.occurredOn ?? today();
+  // เช็คทั้งสองกระเป๋า — แต่ละใบมีเส้นกระทบยอดของตัวเอง โยกทับงวดที่ปิดแล้วของ
+  // ฝั่งใดฝั่งหนึ่งก็ทำให้ยอดที่ยืนยันแล้วเพี้ยน
+  await assertNotReconciled(db, input.fromPocketId, occurredOn);
+  await assertNotReconciled(db, input.toPocketId, occurredOn);
+
   const transferId = newId();
   const outId = newId();
   const inId = newId();
-  const occurredOn = input.occurredOn ?? today();
   const now = nowIso();
 
   // สองขาต้องเกิดพร้อมกัน ไม่งั้นยอดสองกระเป๋าจะไม่บาลานซ์กัน — batch = all-or-nothing

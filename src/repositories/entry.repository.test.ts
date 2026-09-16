@@ -40,6 +40,10 @@ async function countEntries(): Promise<number> {
   return row?.n ?? -1;
 }
 
+async function reconcilePocket(pocketId: string, date: string): Promise<void> {
+  await db.prepare('UPDATE pocket SET last_reconciled_at = ? WHERE id = ?').bind(date, pocketId).run();
+}
+
 let alice: string;
 let bob: string;
 let alicePocket: string;
@@ -87,6 +91,77 @@ describe('createEntry / getEntry', () => {
       createEntry(db, alice, { pocketId: alicePocket, amountSatang: 100, categoryId: bobsCat })
     ).rejects.toThrow();
     expect(await countEntries()).toBe(before);
+  });
+});
+
+// ข้อตกลงข้อ 6: ห้ามลงรายการทับงวดที่กระทบยอดแล้ว · เส้น (last_reconciled_at)
+// เป็นวันที่ปิดงวดแล้วเสมอ (ห้ามวันนี้/อนาคต — reconcile.service กันตอนตั้งเส้น)
+// occurred_on เท่ากับเส้นพอดี = อยู่ในงวดที่ยืนยันแล้ว → ปฏิเสธ (เกณฑ์คือ <=)
+describe('createEntry — กันลงรายการในงวดที่กระทบยอดแล้ว', () => {
+  test('occurred_on หลังเส้น → ผ่าน', async () => {
+    await reconcilePocket(alicePocket, '2026-03-15');
+    const e = await createEntry(db, alice, { pocketId: alicePocket, amountSatang: 100, occurredOn: '2026-03-16' });
+    expect(e.occurredOn).toBe('2026-03-16');
+  });
+
+  test('occurred_on เท่ากับเส้นพอดี → ปฏิเสธ ไม่มีแถวเกิด', async () => {
+    await reconcilePocket(alicePocket, '2026-03-15');
+    const before = await countEntries();
+    await expect(
+      createEntry(db, alice, { pocketId: alicePocket, amountSatang: 100, occurredOn: '2026-03-15' })
+    ).rejects.toThrow();
+    expect(await countEntries()).toBe(before);
+  });
+
+  test('occurred_on ก่อนเส้น → ปฏิเสธ ไม่มีแถวเกิด', async () => {
+    await reconcilePocket(alicePocket, '2026-03-15');
+    const before = await countEntries();
+    await expect(
+      createEntry(db, alice, { pocketId: alicePocket, amountSatang: 100, occurredOn: '2026-03-14' })
+    ).rejects.toThrow();
+    expect(await countEntries()).toBe(before);
+  });
+
+  test('กระเป๋าที่ยังไม่เคยกระทบยอด (เส้น = NULL) → ลงย้อนหลังได้', async () => {
+    const e = await createEntry(db, alice, { pocketId: alicePocket, amountSatang: 100, occurredOn: '2020-01-01' });
+    expect(e.occurredOn).toBe('2020-01-01');
+  });
+});
+
+describe('createTransfer — กันโยกเข้างวดที่กระทบยอดแล้ว (เช็คทั้งสองกระเป๋า)', () => {
+  test('ต้นทางกระทบยอดถึงวันโอนแล้ว → ปฏิเสธ ไม่มีขาไหนเกิด', async () => {
+    const dest = await seedPocket(alice);
+    await reconcilePocket(alicePocket, '2026-03-15');
+    const before = await countEntries();
+    await expect(
+      createTransfer(db, alice, { fromPocketId: alicePocket, toPocketId: dest, amountSatang: 100, occurredOn: '2026-03-15' })
+    ).rejects.toThrow();
+    expect(await countEntries()).toBe(before);
+  });
+
+  // 🔴 พิสูจน์ว่าเช็ค "ทั้งสอง" กระเป๋า ไม่ใช่แค่ต้นทาง: วางเส้นไว้ที่ปลายทางเท่านั้น
+  test('ปลายทางกระทบยอดถึงวันโอนแล้ว → ปฏิเสธ ไม่มีขาไหนเกิด', async () => {
+    const dest = await seedPocket(alice);
+    await reconcilePocket(dest, '2026-03-15');
+    const before = await countEntries();
+    await expect(
+      createTransfer(db, alice, { fromPocketId: alicePocket, toPocketId: dest, amountSatang: 100, occurredOn: '2026-03-15' })
+    ).rejects.toThrow();
+    expect(await countEntries()).toBe(before);
+  });
+
+  test('เส้นทั้งสองกระเป๋าอยู่ก่อนวันโอน → ผ่าน', async () => {
+    const dest = await seedPocket(alice);
+    await reconcilePocket(alicePocket, '2026-03-15');
+    await reconcilePocket(dest, '2026-03-15');
+    const { outflow, inflow } = await createTransfer(db, alice, {
+      fromPocketId: alicePocket,
+      toPocketId: dest,
+      amountSatang: 100,
+      occurredOn: '2026-03-16'
+    });
+    expect(outflow.amountSatang).toBe(-100);
+    expect(inflow.amountSatang).toBe(100);
   });
 });
 
