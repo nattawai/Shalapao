@@ -18,16 +18,18 @@
 | CI workflow + PR template | ✅ |
 | D1 database | ✅ สร้างแล้ว · `f1a47802-736f-4b02-bc53-bc3cc8316688` · APAC |
 | `pnpm install` / lockfile | ✅ |
-| **`pnpm check` (typecheck · lint · test)** | ✅ ผ่านหมด · 30 test |
+| **`pnpm check` (typecheck · lint · test)** | ✅ ผ่านหมด (ทุก project) |
 | `typescript-eslint` (flat config) | ✅ เพิ่มแล้ว · `recommended` เปิด |
 | git init + push commit แรก | ✅ อยู่บน `main` แล้ว |
 | **migration รันบน D1 remote** | ✅ ครบ 6 ไฟล์ · `d1_migrations` track ถูกต้อง |
 | `repositories/pocket.repository.ts` + test | ✅ TDD · กันรั่วข้ามผู้ใช้ทั้ง read และ `parentId`/`categoryId` · list ซ่อน archived |
+| `entry.repository.ts` + test | ✅ TDD · append-only · โยกสองขา · กันงวดกระทบยอด (`<=`) · amount>0 · from≠to |
+| auth: `middleware/auth` · `services/auth.service` · `repositories/app-user.repository` · `lib/line` | ✅ TDD · LINE Login verify ID token · `userId` จาก token เท่านั้น · fail closed |
 | test harness D1 (`vitest-pool-workers`) | ✅ workerd + Miniflare D1 รัน migration จริง |
 | workers toolchain | ✅ wrangler 4.124.0 (ตัวเดียว) · vitest 4.1.11 · pool-workers 0.22 · miniflare 5 · vite 8 |
 | `pnpm audit` (dev dependency) | ✅ 0 ช่องโหว่ (จาก 30) · sharp บังคับ `^0.35.4` ผ่าน `pnpm.overrides` |
-| LINE provider + channels | ❌ |
-| `services/` `routes/` `web/` | ❌ ยังไม่เริ่ม |
+| LINE provider + channels | ✅ provider + LINE Login channel + LIFF สร้างแล้ว (ทะเบียนใน `..\_docs`) · bot (Messaging API) = v3 |
+| `services/` `routes/` `web/` | 🔄 `auth.service` แล้ว · `pocket/entry/reconcile.service` · `routes/` · `web/` ❌ |
 | branch protection + public/private | ❌ ยังไม่เคาะ |
 
 ---
@@ -52,6 +54,7 @@
 | pin transitive ผ่าน `pnpm.overrides` ไม่ใช่ direct dep | `sharp` เท่านั้น (มีเพดาน `^0.35.4`) | เราไม่ได้ import sharp/vite เอง มันมากับ miniflare/vitest · การประกาศเป็น direct dep = โกหกว่าโปรเจกต์ใช้ · vite 8 มากับ vitest อยู่แล้ว (ไม่ต้อง override) · sharp native = 0.35.2 (มี advisory libheif) จึง override เป็น `^0.35.4` — ใช้ `^` ไม่ใช่ `>=` เพื่อกัน major ใหม่หลุดเข้ามาเงียบ ๆ แล้ว wrangler พัง |
 | ด่านกันแก้งวดที่กระทบยอดแล้ว (ข้อตกลงข้อ 6) อยู่ที่ **repository** ไม่ใช่ service | guard `occurred_on <= last_reconciled_at` ใน `entry.repository` (createEntry + createTransfer เช็คทั้งสองกระเป๋า) | insert เกิดที่ไฟล์นั้นที่เดียว — ด่านต้องอยู่ตรง insert เหมือน user filter · service เพิ่ม error ที่อ่านง่ายทีหลังได้ แต่ห้ามเป็นด่านเดียว |
 | `last_reconciled_at` = วันที่ปิดงวดแล้วเท่านั้น (ห้ามวันนี้/อนาคต) · เก็บเป็น YYYY-MM-DD | `reconcile.service` บังคับ "ห้ามวันนี้/อนาคต" ตอนตั้งเส้น · trigger 0007 บังคับรูปแบบที่ D1 | ถ้าเส้น = วันนี้ รายการของวันนี้จะโดนปฏิเสธ → ผู้ใช้ต้องโกหกวันใน ledger = ทำลายสิ่งเดียวที่แอปสัญญา · เส้นเป็นอดีตเสมอจึงไม่บล็อกรายการวันนี้ และ entry ปรับยอด (ลงวันนี้) ไม่ชนเส้นตั้งแต่แรก ไม่ต้องพึ่งลำดับการเรียก · `date('now')` ของ SQLite เป็น UTC เชื่อไม่ได้ กฎ "วันนี้" จึงอยู่ที่ service ไม่ใช่ migration |
+| auth: ตัวตนมาจาก LINE ID token เท่านั้น · verify ที่ server · fail closed | `middleware/auth` อ่าน `Authorization` → `services/auth.service` (verify+aud/exp/iss+upsert · dep ฉีดทาง parameter) → `app-user.repository` | D1 ไม่มี row-level security — รับ `userId` จาก client แม้ทางเดียว = ปลอมเป็นคนอื่นได้ · LINE ล่มแล้วปล่อยผ่าน = เปิดประตูทิ้ง จึง fail closed (401) · ไม่ decode JWT เอง (LINE ถือกุญแจ) เลยไม่ต้องเพิ่ม dependency · `LIFF_LOGIN_CHANNEL_ID` ไม่ใช่ความลับ อยู่ `[vars]` |
 
 ---
 
@@ -83,11 +86,11 @@
 
 ## 5. ขั้นถัดไป — เรียงลำดับ
 
-1. เปิด PR `feature/v0-pocket-repository` → `main` (อย่า merge เข้า main ตรง ๆ)
-2. เคาะ public/private → ตั้ง branch protection บน `main` + `develop`
-3. `entry.repository.ts` แบบ TDD (append-only · กัน edit ก่อน `last_reconciled_at`)
-4. `services/` ตัวแรก (pocket.service) — business rule แยกจาก repository
-5. สร้าง LINE provider + 2 channels **ภายใต้ provider เดียวกัน** → จดลง `..\_docs\line-provider-channels.md`
+1. LIFF frontend เรียก `liff.getIDToken()` แล้วแนบ `Authorization: Bearer <token>` — backend auth พร้อมแล้ว
+2. `routes/` ตัวแรก (pocket) — อ่าน `c.get('userId')` ส่งต่อ repository · ต้องเพิ่ม `zod` (รออนุมัติ §4)
+3. `services/` — `pocket.service` · `entry.service` · `reconcile.service` (reconcile ต้องบังคับ "เส้นห้ามวันนี้/อนาคต")
+4. deploy: ตั้ง secret `LINE_*` ด้วย `wrangler secret put` · รัน migration ล่าสุด (0007 trigger) บน D1 remote แล้วยืนยันว่าขึ้นจริง
+5. เคาะ public/private → ตั้ง branch protection บน `main` + `develop`
 
 ---
 

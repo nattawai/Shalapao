@@ -51,6 +51,7 @@ routes → services → repositories → D1
 | ชั้น | รับผิดชอบ | ห้าม |
 |---|---|---|
 | `routes/` | HTTP เท่านั้น — parse · validate ด้วย Zod · แปลง response · status code | business rule · แตะ D1 |
+| `middleware/` | Hono middleware cross-cutting — auth (ตรวจ ID token · ยัด `userId` ลง context) | business rule · แตะ D1 · เรียก `repositories/` ตรง ๆ |
 | `services/` | business rule ทั้งหมด · ไม่ผูกกับ Hono เท่าที่ทำได้ | เขียน SQL เอง |
 | `repositories/` | เข้าถึง D1 เท่านั้น · ยัด user filter ให้อัตโนมัติ | business rule · อ้างชั้นบน |
 | `domain/` | type · เงิน · id · การคำนวณบริสุทธิ์ | side effect · อ้างชั้นไหนก็ตาม |
@@ -89,15 +90,20 @@ Shalapao/
       *.test.ts                test อยู่ข้างไฟล์ที่มันทดสอบ
 
     services/
+      auth.service.ts          verify ID token + map เป็น app_user (dep ฉีดทาง parameter)
       pocket.service.ts
       entry.service.ts
       reconcile.service.ts
       *.test.ts
 
     repositories/
+      app-user.repository.ts   upsert ผู้ใช้จาก LINE (ตั้งชื่อไฟล์ตามตาราง)
       pocket.repository.ts
       entry.repository.ts
       *.test.ts
+
+    middleware/
+      auth.ts                  ตรวจ Authorization → authenticate → ยัด userId ลง context
 
     routes/
       pocket.route.ts
@@ -105,7 +111,7 @@ Shalapao/
       schemas/                 Zod schema ของแต่ละ route
 
     lib/
-      line.ts
+      line.ts                  LINE client — verify ID token · (v3) push · vision
 
     web/                       React app ของ LIFF
 
@@ -118,9 +124,9 @@ Shalapao/
 **ตั้งชื่อไฟล์:** `kebab-case` + suffix คั่นด้วยจุด — `entry.service.ts` · `pocket.repository.ts` · `create-entry.schema.ts`
 **unit test อยู่ข้างไฟล์ที่ทดสอบ · e2e อยู่ใน `tests/e2e/`**
 
-**test แยกเป็น 2 project** (`vitest.workspace.ts`):
-- `unit` — `domain/` `services/` รันบน **node** เร็ว ไม่แตะ D1
-- `workers` — `repositories/` และ `tests/e2e/` รันบน **workerd + Miniflare D1** (`@cloudflare/vitest-pool-workers`) เพราะ test กันข้อมูลรั่วข้ามผู้ใช้ต้องรัน SQL จริงบน schema จริง ไม่งั้นไม่มีความหมาย
+**test แยกเป็น 2 project** (`vitest.config.ts` · `test.projects`):
+- `unit` — `domain/` `services/` `lib/` รันบน **node** เร็ว ไม่แตะ D1 (mock dependency เช่น `fetch` ให้หมด)
+- `workers` — `repositories/` `middleware/` และ `tests/workers/` รันบน **workerd + Miniflare D1** (`@cloudflare/vitest-pool-workers`) เพราะ test กันข้อมูลรั่วข้ามผู้ใช้ต้องรัน SQL จริงบน schema จริง ไม่งั้นไม่มีความหมาย
 
 ---
 

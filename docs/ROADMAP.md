@@ -19,7 +19,7 @@
 | v4 — ภาษีและแผนเสียเงิน | `0.5.0` |
 | เปิดให้คนนอกใช้ | `1.0.0` |
 
-🔴 **ติดอยู่ที่:** LINE provider ยังไม่สร้าง → ทำ `routes/` และ LIFF ต่อไม่ได้
+▶️ **ถัดไป:** provider + LINE Login channel + LIFF พร้อมแล้ว · backend auth (verify ID token) เสร็จ → เริ่ม `routes/` + LIFF frontend ได้
 
 ---
 
@@ -59,8 +59,8 @@
 
 - [ ] `zod` validate ทุก input ที่ขอบ *(รออนุมัติเพิ่ม dependency — `STATUS.md` §4)*
 - [ ] LINE webhook + **ตรวจ signature ทุก request**
-- [ ] LINE Login → map `userId` เป็น `app_user`
-- [ ] auth middleware ที่ยัด `userId` ให้ repository อัตโนมัติ
+- [x] LINE Login → map `userId` เป็น `app_user` — verify ID token กับ LINE · upsert by `line_user_id`
+- [x] auth middleware ยัด `userId` ให้ทุก route ใต้ `/api/*` · `userId` มาจาก token ที่ LINE เซ็นเท่านั้น (ไม่รับจาก client) · fail closed เมื่อ LINE ล่ม
 
 ### หน้าจอ (LIFF)
 
