@@ -1,5 +1,6 @@
 import { env } from 'cloudflare:test';
 import { beforeEach, describe, expect, test } from 'vitest';
+import { ConflictError, ForbiddenError, ValidationError } from '../domain/errors';
 import { newId, nowIso, today } from '../domain/id';
 import { createEntry, createTransfer, getEntry, listEntries } from './entry.repository';
 
@@ -79,7 +80,7 @@ describe('createEntry / getEntry', () => {
     const before = await countEntries();
     await expect(
       createEntry(db, alice, { pocketId: bobPocket, amountSatang: 100 })
-    ).rejects.toThrow();
+    ).rejects.toBeInstanceOf(ForbiddenError);
     expect(await countEntries()).toBe(before);
   });
 
@@ -89,7 +90,7 @@ describe('createEntry / getEntry', () => {
     const before = await countEntries();
     await expect(
       createEntry(db, alice, { pocketId: alicePocket, amountSatang: 100, categoryId: bobsCat })
-    ).rejects.toThrow();
+    ).rejects.toBeInstanceOf(ForbiddenError);
     expect(await countEntries()).toBe(before);
   });
 });
@@ -109,7 +110,7 @@ describe('createEntry — กันลงรายการในงวดที
     const before = await countEntries();
     await expect(
       createEntry(db, alice, { pocketId: alicePocket, amountSatang: 100, occurredOn: '2026-03-15' })
-    ).rejects.toThrow();
+    ).rejects.toBeInstanceOf(ConflictError);
     expect(await countEntries()).toBe(before);
   });
 
@@ -229,7 +230,7 @@ describe('createTransfer — ปฏิเสธ input ที่ทำ ledger พ
     const before = await countEntries();
     await expect(
       createTransfer(db, alice, { fromPocketId: alicePocket, toPocketId: dest, amountSatang: -500 })
-    ).rejects.toThrow();
+    ).rejects.toBeInstanceOf(ValidationError);
     expect(await countEntries()).toBe(before);
   });
 
@@ -244,7 +245,7 @@ describe('createTransfer — ปฏิเสธ input ที่ทำ ledger พ
     const before = await countEntries();
     await expect(
       createTransfer(db, alice, { fromPocketId: alicePocket, toPocketId: alicePocket, amountSatang: 100 })
-    ).rejects.toThrow();
+    ).rejects.toBeInstanceOf(ValidationError);
     expect(await countEntries()).toBe(before);
   });
 });

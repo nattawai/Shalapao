@@ -1,3 +1,4 @@
+import { ConflictError, ForbiddenError, ValidationError } from '../domain/errors';
 import { newId, nowIso, today } from '../domain/id';
 
 export type EntrySource = 'manual' | 'rule' | 'reconcile' | 'slip' | 'import';
@@ -87,7 +88,7 @@ async function assertMember(db: D1Database, userId: string, pocketId: string): P
     .prepare('SELECT 1 AS ok FROM pocket_member WHERE pocket_id = ? AND user_id = ? AND left_at IS NULL')
     .bind(pocketId, userId)
     .first<{ ok: number }>();
-  if (!row) throw new Error('ไม่มีสิทธิ์ในกระเป๋านี้');
+  if (!row) throw new ForbiddenError('pocket_forbidden', 'ไม่มีสิทธิ์ในกระเป๋านี้ — ต้องเป็นสมาชิกก่อนจึงจะทำรายการได้');
 }
 
 async function assertOwnsCategory(db: D1Database, userId: string, categoryId: string): Promise<void> {
@@ -95,7 +96,7 @@ async function assertOwnsCategory(db: D1Database, userId: string, categoryId: st
     .prepare('SELECT id FROM category WHERE id = ? AND user_id = ?')
     .bind(categoryId, userId)
     .first<{ id: string }>();
-  if (!row) throw new Error('categoryId ไม่ใช่หมวดของผู้ใช้');
+  if (!row) throw new ForbiddenError('category_not_owned', 'หมวดที่เลือกไม่ใช่ของคุณ — เลือกหมวดของคุณเองหรือปล่อยว่าง');
 }
 
 // ข้อตกลงข้อ 6: ห้ามลงรายการทับงวดที่กระทบยอดแล้ว — occurred_on <= เส้น = ปฏิเสธ
@@ -109,7 +110,10 @@ async function assertNotReconciled(db: D1Database, pocketId: string, occurredOn:
     .first<{ line: string | null }>();
   const line = row?.line ?? null;
   if (line !== null && occurredOn <= line) {
-    throw new Error(`ลงรายการในงวดที่กระทบยอดแล้วไม่ได้ (ถึง ${line}) — ออกรายการปรับของวันนี้แทน`);
+    throw new ConflictError(
+      'reconciled_period',
+      `ลงรายการในงวดที่กระทบยอดแล้วไม่ได้ (ถึง ${line}) — ออกรายการปรับของวันนี้แทน`
+    );
   }
 }
 
@@ -168,11 +172,11 @@ export async function createTransfer(
   // ทิศทางกำหนดด้วยต้นทาง/ปลายทาง จำนวนจึงต้องเป็นบวกเสมอ · ยอดติดลบไหลย้อน
   // (−(−n) เข้าต้นทาง) โดย DB CHECK amount <> 0 จับไม่ได้ · 0 DB จับอยู่แล้ว
   if (input.amountSatang <= 0) {
-    throw new Error('จำนวนเงินโยกต้องมากกว่า 0 — ทิศทางกำหนดด้วยต้นทาง/ปลายทาง ไม่ใช่เครื่องหมาย');
+    throw new ValidationError('transfer_amount_positive', 'จำนวนเงินโยกต้องมากกว่า 0 — ทิศทางกำหนดด้วยต้นทาง/ปลายทาง ไม่ใช่เครื่องหมาย');
   }
   // โยกเข้ากระเป๋าเดียวกัน = สองแถวหักล้างกันในกระเป๋าเดียว = ledger ขยะ
   if (input.fromPocketId === input.toPocketId) {
-    throw new Error('โยกเข้ากระเป๋าเดียวกันไม่ได้');
+    throw new ValidationError('same_pocket_transfer', 'โยกเข้ากระเป๋าเดียวกันไม่ได้ — เลือกกระเป๋าปลายทางอื่น');
   }
 
   // ต้องเป็นสมาชิกทั้งสองกระเป๋า — โยกเข้ากระเป๋าคนอื่นไม่ได้
