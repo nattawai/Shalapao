@@ -1,3 +1,4 @@
+import { ForbiddenError } from '../domain/errors';
 import { newId, nowIso } from '../domain/id';
 
 export type PocketKind = 'holds_balance' | 'flow_through';
@@ -115,14 +116,18 @@ export async function createPocket(
   // กระเป๋า/หมวดของคนอื่นได้ผ่าน parentId/categoryId ซึ่งเป็นการรั่วข้ามผู้ใช้
   if (input.parentId != null) {
     const parent = await getPocket(db, userId, input.parentId);
-    if (!parent) throw new Error('parentId ไม่ใช่กระเป๋าที่ผู้ใช้เข้าถึงได้');
+    if (!parent) {
+      throw new ForbiddenError('parent_not_accessible', 'กระเป๋าแม่ที่เลือกไม่ใช่ของคุณ — เลือกกระเป๋าของคุณเอง');
+    }
   }
   if (input.categoryId != null) {
     const owned = await db
       .prepare('SELECT id FROM category WHERE id = ? AND user_id = ?')
       .bind(input.categoryId, userId)
       .first<{ id: string }>();
-    if (!owned) throw new Error('categoryId ไม่ใช่หมวดของผู้ใช้');
+    if (!owned) {
+      throw new ForbiddenError('category_not_owned', 'หมวดที่เลือกไม่ใช่ของคุณ — เลือกหมวดของคุณเองหรือปล่อยว่าง');
+    }
   }
 
   const id = newId();

@@ -1,6 +1,6 @@
 # STATUS — Shalapao
 
-อัปเดตล่าสุด: 2026-09-16
+อัปเดตล่าสุด: 2026-09-22
 > **อ่านไฟล์นี้ก่อนเริ่มงานทุกครั้ง** — บอกว่าตอนนี้อยู่ตรงไหน ตัดสินใจอะไรไปแล้ว และทำอะไรต่อ
 > Repo: https://github.com/nattawai/Shalapao
 
@@ -29,7 +29,7 @@
 | workers toolchain | ✅ wrangler 4.124.0 (ตัวเดียว) · vitest 4.1.11 · pool-workers 0.22 · miniflare 5 · vite 8 |
 | `pnpm audit` (dev dependency) | ✅ 0 ช่องโหว่ (จาก 30) · sharp บังคับ `^0.35.4` ผ่าน `pnpm.overrides` |
 | LINE provider + channels | ✅ provider + LINE Login channel + LIFF สร้างแล้ว (ทะเบียนใน `..\_docs`) · bot (Messaging API) = v3 |
-| `services/` `routes/` `web/` | 🔄 `auth.service` แล้ว · `pocket/entry/reconcile.service` · `routes/` · `web/` ❌ |
+| `services/` `routes/` `web/` | 🔄 `auth`+`pocket`+`category` service (สองตัวหลัง forwarder) · `routes/` pockets+categories ✅ · `entry`/`reconcile.service` · `web/` ❌ |
 | branch protection + public/private | ❌ ยังไม่เคาะ |
 
 ---
@@ -55,6 +55,7 @@
 | ด่านกันแก้งวดที่กระทบยอดแล้ว (ข้อตกลงข้อ 6) อยู่ที่ **repository** ไม่ใช่ service | guard `occurred_on <= last_reconciled_at` ใน `entry.repository` (createEntry + createTransfer เช็คทั้งสองกระเป๋า) | insert เกิดที่ไฟล์นั้นที่เดียว — ด่านต้องอยู่ตรง insert เหมือน user filter · service เพิ่ม error ที่อ่านง่ายทีหลังได้ แต่ห้ามเป็นด่านเดียว |
 | `last_reconciled_at` = วันที่ปิดงวดแล้วเท่านั้น (ห้ามวันนี้/อนาคต) · เก็บเป็น YYYY-MM-DD | `reconcile.service` บังคับ "ห้ามวันนี้/อนาคต" ตอนตั้งเส้น · trigger 0007 บังคับรูปแบบที่ D1 | ถ้าเส้น = วันนี้ รายการของวันนี้จะโดนปฏิเสธ → ผู้ใช้ต้องโกหกวันใน ledger = ทำลายสิ่งเดียวที่แอปสัญญา · เส้นเป็นอดีตเสมอจึงไม่บล็อกรายการวันนี้ และ entry ปรับยอด (ลงวันนี้) ไม่ชนเส้นตั้งแต่แรก ไม่ต้องพึ่งลำดับการเรียก · `date('now')` ของ SQLite เป็น UTC เชื่อไม่ได้ กฎ "วันนี้" จึงอยู่ที่ service ไม่ใช่ migration |
 | auth: ตัวตนมาจาก LINE ID token เท่านั้น · verify ที่ server · fail closed | `middleware/auth` อ่าน `Authorization` → `services/auth.service` (verify+aud/exp/iss+upsert · dep ฉีดทาง parameter) → `app-user.repository` | D1 ไม่มี row-level security — รับ `userId` จาก client แม้ทางเดียว = ปลอมเป็นคนอื่นได้ · LINE ล่มแล้วปล่อยผ่าน = เปิดประตูทิ้ง จึง fail closed (401) · ไม่ decode JWT เอง (LINE ถือกุญแจ) เลยไม่ต้องเพิ่ม dependency · `LIFF_LOGIN_CHANNEL_ID` ไม่ใช่ความลับ อยู่ `[vars]` |
+| ชนิด error: **repository โยน typed error เอง** (Forbidden/Conflict/Validation) · service ปล่อยผ่าน · route จุดเดียวแปลงเป็น HTTP | `domain/errors.ts` | ชนิดของ failure ไม่ใช่ business rule — เป็นการจัดหมวดที่ repo สร้างเองอยู่แล้ว · repo ไม่ต้องรู้จักเลข 403/409 · route ไม่ต้อง string-match ข้อความไทย (เปราะ) · ผลพลอยได้: `pocket.service`/`category.service` เป็น forwarder เพราะ v0 ไม่มีกฎที่ repo ไม่ได้ถือ — ยอมรับ ไม่ยัดกฎปลอม · error ตอบ message ไทยที่บอกทางออก (ต่างจาก 401 auth ที่ไม่บอกเหตุผล เพราะตรงนี้คือเจ้าของข้อมูลเอง) |
 
 ---
 
@@ -78,19 +79,18 @@
 
 | แพ็กเกจ | ใช้ทำอะไร | จำเป็นเมื่อ |
 |---|---|---|
-| `zod` | validate input ที่ขอบ route | เขียน `routes/` ตัวแรก |
+| — | — | ยังไม่มีที่รออนุมัติ |
 
-อนุมัติและเพิ่มแล้ว: `typescript-eslint` · `@cloudflare/vitest-pool-workers` (0.22 — เข้ากับ vitest 4.1)
+อนุมัติและเพิ่มแล้ว: `typescript-eslint` · `@cloudflare/vitest-pool-workers` (0.22 — เข้ากับ vitest 4.1) · `zod` (validate ที่ขอบ route)
 
 ---
 
 ## 5. ขั้นถัดไป — เรียงลำดับ
 
-1. LIFF frontend เรียก `liff.getIDToken()` แล้วแนบ `Authorization: Bearer <token>` — backend auth พร้อมแล้ว
-2. `routes/` ตัวแรก (pocket) — อ่าน `c.get('userId')` ส่งต่อ repository · ต้องเพิ่ม `zod` (รออนุมัติ §4)
-3. `services/` — `pocket.service` · `entry.service` · `reconcile.service` (reconcile ต้องบังคับ "เส้นห้ามวันนี้/อนาคต")
-4. deploy: ตั้ง secret `LINE_*` ด้วย `wrangler secret put` · รัน migration ล่าสุด (0007 trigger) บน D1 remote แล้วยืนยันว่าขึ้นจริง
-5. เคาะ public/private → ตั้ง branch protection บน `main` + `develop`
+1. LIFF frontend จริง (แทน smoke page) — หน้าเดียว: รายการกระเป๋า + ยอด + เพิ่มรายการ · เรียก `/api/pockets` `/api/categories` ที่มีแล้ว
+2. `entry.service` + routes เพิ่ม/โยกรายการ (`POST /api/entries` · `/api/transfers`) — repository พร้อมแล้ว
+3. `reconcile.service` — เทียบยอด · ตั้ง `last_reconciled_at` (บังคับ "เส้นห้ามวันนี้/อนาคต")
+4. เคาะ public/private → ตั้ง branch protection บน `main` + `develop`
 
 ---
 
@@ -120,3 +120,4 @@
 | coverage threshold 90% | `pnpm check` ไม่ได้รัน coverage · จะเจอตอนรัน `--coverage` เท่านั้น · ลดเหลือ 80 ได้ แต่อย่าปิด |
 | LINE provider | ถ้าตั้งบอทกับ LIFF คนละ provider = `userId` คนละตัว แก้ยากมากตอนมีข้อมูลแล้ว |
 | `dist/web/index.html` | หน้า smoke test **ชั่วคราว** สำหรับ first deploy (โหลด LIFF SDK จาก CDN · ไม่มี build) · **แทนที่** ตอนทำหน้าจอจริง (LIFF/React) ไม่ใช่ต่อยอดจากมัน · `/api/me` ก็เป็น route ชั่วคราวคู่กัน |
+| `pocket.kind` (holds_balance/flow_through) | view `pocket_balance` (0006) **ไม่แยก kind** — balance = `SUM` รวมทุก entry · v0 เก็บ kind (zod enum) แต่ยังไม่มีผลต่อการคำนวณ · ถ้าเอกสารต้องการให้ kind เปลี่ยนวิธีคิดยอดจริง = แก้ที่ **view (migration ใหม่)** ไม่ใช่โค้ดแอป |

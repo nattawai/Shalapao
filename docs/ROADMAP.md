@@ -1,6 +1,6 @@
 # ROADMAP — Shalapao
 
-อัปเดตล่าสุด: 2026-09-16
+อัปเดตล่าสุด: 2026-09-22
 
 > **ไฟล์นี้ตอบว่า "เหลืออะไร"** — `STATUS.md` ตอบว่า "ตัดสินใจอะไรไปแล้ว"
 > ถ้าสองไฟล์ขัดกัน ให้เชื่อ `STATUS.md` แล้วมาแก้ไฟล์นี้
@@ -51,13 +51,14 @@
 
 ### services
 
-- [ ] `pocket.service.ts` — business rule แยกจาก repository
+- [x] `pocket.service.ts` — forwarder (repository ถือ invariant · route ถือ HTTP mapping · v0 ไม่มีกฎเพิ่ม)
 - [ ] `entry.service.ts` — เงินเข้า/ออก/โยก
 - [ ] `reconcile.service.ts` — เทียบยอดจริงกับยอดคำนวณ · ตั้ง `last_reconciled_at` (ต้องเป็นวันที่ปิดงวดแล้ว ห้ามวันนี้/อนาคต · เขียนเป็น YYYY-MM-DD — trigger 0007 บังคับรูปแบบ)
 
 ### ขอบระบบ
 
-- [ ] `zod` validate ทุก input ที่ขอบ _(รออนุมัติเพิ่ม dependency — `STATUS.md` §4)_
+- [x] `zod` validate ทุก input ที่ขอบ — ใช้ที่ `GET/POST /api/pockets` · `/api/categories` · ปฏิเสธ field ที่ไม่รู้จัก
+- [x] `GET/POST /api/pockets` · `GET/POST /api/categories` — ยอดเป็นสตางค์จาก view · typed error → HTTP · กันรั่วข้ามผู้ใช้ (test A ไม่เห็นของ B)
 - [x] LINE Login → map `userId` เป็น `app_user` — verify ID token กับ LINE · upsert by `line_user_id`
 - [x] auth middleware ยัด `userId` ให้ทุก route ใต้ `/api/*` · `userId` มาจาก token ที่ LINE เซ็นเท่านั้น (ไม่รับจาก client) · fail closed เมื่อ LINE ล่ม
 
@@ -71,10 +72,10 @@
 
 ### LINE + deploy
 
-- [ ] สร้าง provider + 2 channels **ภายใต้ provider เดียวกัน** → จดลง `..\_docs\line-provider-channels.md`
-- [ ] LINE OA: ปิด auto-reply/greeting · เปิด Webhook · Response mode = Bot
-- [ ] deploy ขึ้น Cloudflare Workers
-- [ ] ตั้ง Webhook URL + LIFF Endpoint URL จริง (ตอนนี้ยังเป็น `https://example.com`)
+- [x] สร้าง provider + 2 channels **ภายใต้ provider เดียวกัน** → จดลง `..\_docs\line-provider-channels.md`
+- [x] LINE OA: ปิด auto-reply/greeting · Response mode = Bot
+- [x] deploy ขึ้น Cloudflare Workers — `https://shalapao.nattawai157.workers.dev`
+- [x] ตั้ง LIFF Endpoint URL จริง · พิสูจน์แล้วจากมือถือ: LIFF → verify → D1 → คืน `userId` (Webhook URL ไม่ต้องตอนนี้ — อยู่ v3 พร้อมบอท)
 
 ### ปิดเฟส
 
@@ -103,12 +104,23 @@
 - [ ] นำเข้าสรุปรายเดือนจากชีตเดิม
 - [ ] ตรวจว่ากฎแบ่งเงินรวมกันไม่เกินเงินที่เข้าจริง
 
+**ค่าบริการรายเดือน (subscription)** — อยู่ v2 เพราะต้องใช้แจ้งเตือน (v1) + กลไกเงินตัดตามรอบ (`allocation_rule`)
+
+- [ ] `subscription` — ชื่อ · ยอดเป็นบาท · รอบ (เดือน/ปี) · วันตัดถัดไป · กระเป๋าที่ถูกตัด
+- [ ] สรุปยอดรวมต่อเดือนและต่อปี · แยกตามกระเป๋า
+- [ ] ถึงวันตัดแล้วสร้าง `entry` ให้อัตโนมัติ (ผู้ใช้ยืนยันก่อน ไม่ลงเอง)
+- [ ] เตือนล่วงหน้าก่อนตัด · เตือนก่อนจบ free trial (ใช้ระบบแจ้งเตือนของ v1)
+- [ ] 🔴 **เตือนว่ากระเป๋านั้นเงินไม่พอถึงวันตัด** — นี่คือข้อเดียวที่แอปติดตาม subscription ทั่วไปทำไม่ได้ เพราะมันไม่มียอดคงเหลือจริง เรามี
+
+> **ไม่ทำ:** หลายสกุลเงิน (ธนาคารตัดเป็นบาท — บันทึกยอดที่ถูกตัดจริง) · ซิงก์ Google/Apple Calendar · แยกตามบัตรเครดิต · PWA
+> เหตุผล: มีเจ้าตลาดอยู่แล้ว (Billbau และอื่น ๆ) การไล่ตามรายการฟีเจอร์เขาคือการแข่งในสนามที่เราไม่ได้เปรียบ
+
 ---
 
 ## v3 → `0.4.0` — บอทและกระเป๋าร่วม
 
 - [ ] บอท: พิมพ์ข้อความ → บันทึกรายการ
-- [ ] LINE webhook (รับข้อความจากบอท) + **ตรวจ signature ทุก request**
+- [ ] LINE webhook (รับข้อความจากบอท) + **ตรวจ signature ทุก request** · ตั้ง Webhook URL + เปิดสวิตช์ Webhook ใน OA Manager ตอนนี้
 - [ ] อ่านสลิป (vision) → **อ่านแล้วลบทันที** เก็บเฉพาะข้อมูลที่สกัดออกมา
 - [ ] กระเป๋าร่วม + เชิญสมาชิก
 - [ ] สิทธิ์ในกระเป๋าร่วม (ใครแก้ได้ ใครดูได้อย่างเดียว)

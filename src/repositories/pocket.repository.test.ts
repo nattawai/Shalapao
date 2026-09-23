@@ -1,5 +1,6 @@
 import { env } from 'cloudflare:test';
 import { beforeEach, describe, expect, test } from 'vitest';
+import { ForbiddenError } from '../domain/errors';
 import { newId, nowIso, today } from '../domain/id';
 import { createPocket, getPocket, listPockets } from './pocket.repository';
 
@@ -125,7 +126,7 @@ describe('createPocket — parent/category ต้องเป็นของผ�
 
     await expect(
       createPocket(db, alice, { name: 'แอบเกาะ', kind: 'holds_balance', parentId: bobsPocket.id })
-    ).rejects.toThrow();
+    ).rejects.toBeInstanceOf(ForbiddenError);
 
     expect(await countPockets()).toBe(before);
     expect(await listPockets(db, alice)).toHaveLength(0);
@@ -134,7 +135,7 @@ describe('createPocket — parent/category ต้องเป็นของผ�
   test('parentId ที่ไม่มีอยู่จริง → ปฏิเสธ', async () => {
     await expect(
       createPocket(db, alice, { name: 'ลูกกำพร้า', kind: 'holds_balance', parentId: newId() })
-    ).rejects.toThrow();
+    ).rejects.toBeInstanceOf(ForbiddenError);
   });
 
   test('categoryId ที่เป็นของตัวเอง → สร้างได้ · เก็บค่าถูก', async () => {
@@ -148,7 +149,7 @@ describe('createPocket — parent/category ต้องเป็นของผ�
     const bobsCat = await seedCategory(bob, 'หมวดของ Bob');
     await expect(
       createPocket(db, alice, { name: 'x', kind: 'holds_balance', categoryId: bobsCat })
-    ).rejects.toThrow();
+    ).rejects.toBeInstanceOf(ForbiddenError);
   });
 });
 

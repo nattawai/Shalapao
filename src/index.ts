@@ -2,7 +2,10 @@ import { Hono } from 'hono';
 import { lineLoginChannelId } from './config';
 import { verifyLineIdToken } from './lib/line';
 import { authMiddleware, type AuthEnv } from './middleware/auth';
+import { categoryRoutes } from './routes/category.route';
+import { httpError } from './routes/http-error';
 import { me } from './routes/me.route';
+import { pocketRoutes } from './routes/pocket.route';
 import { upsertUserByLineId } from './repositories/app-user.repository';
 
 const app = new Hono<AuthEnv>();
@@ -35,10 +38,13 @@ app.use(
 // ต้องถูกแทนที่ตอนทำหน้าจอจริง ไม่ใช่ต่อยอดจากมัน
 app.get('/api/me', me);
 
-// API ทั้งหมดอยู่ใต้ /api — routes/ จะมาต่อที่นี่
-// app.route('/api/pockets', pocketRoutes);
+app.route('/api/pockets', pocketRoutes);
+app.route('/api/categories', categoryRoutes);
 // app.route('/api/entries', entryRoutes);
 // app.post('/line/webhook', lineWebhook);   // v3
+
+// จุดเดียวที่แปลง typed error (domain) และ ZodError → HTTP status
+app.onError(httpError);
 
 // ที่เหลือส่งให้หน้าเว็บ LIFF (static assets จาก dist/web)
 app.get('*', (c) => c.env.ASSETS.fetch(c.req.raw));
