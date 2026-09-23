@@ -42,4 +42,16 @@ describe('upsertUserByLineId', () => {
       .first<{ name: string }>();
     expect(row?.name).toBe('ชื่อใหม่');
   });
+
+  // 🔴 LINE บางครั้งคืน name ว่าง (ไม่มี scope profile ชั่วคราว) — ห้ามทับชื่อที่เก็บไว้แล้ว
+  test('login ด้วยชื่อว่าง → ไม่ทับชื่อเดิม', async () => {
+    const first = await upsertUserByLineId(db, { lineUserId: 'U-keep-001', displayName: 'ไว' });
+    const again = await upsertUserByLineId(db, { lineUserId: 'U-keep-001', displayName: '' });
+    expect(again.id).toBe(first.id);
+    const row = await db
+      .prepare('SELECT display_name AS name FROM app_user WHERE line_user_id = ?')
+      .bind('U-keep-001')
+      .first<{ name: string }>();
+    expect(row?.name).toBe('ไว');
+  });
 });

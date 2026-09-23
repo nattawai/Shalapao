@@ -7,6 +7,7 @@ export type UpsertUserInput = {
 
 // upsert ด้วย ON CONFLICT บน line_user_id (UNIQUE) — login ซ้ำไม่สร้างตัวตนใหม่
 // อัปเดต display_name เฉพาะตอนเปลี่ยนจริง (WHERE) ไม่งั้นทุก login = D1 write เปล่า ๆ
+// และห้ามทับด้วยชื่อว่าง — LINE บางครั้งคืน name ว่างชั่วคราว ต้องเก็บชื่อเดิมไว้
 // อ่าน id กลับด้วย SELECT เสมอ เพราะกรณี no-op (ชื่อไม่เปลี่ยน) RETURNING ไม่คืนแถว
 export async function upsertUserByLineId(
   db: D1Database,
@@ -17,7 +18,7 @@ export async function upsertUserByLineId(
       `INSERT INTO app_user (id, line_user_id, display_name, created_at)
        VALUES (?, ?, ?, ?)
        ON CONFLICT(line_user_id) DO UPDATE SET display_name = excluded.display_name
-         WHERE display_name <> excluded.display_name`
+         WHERE display_name <> excluded.display_name AND excluded.display_name <> ''`
     )
     .bind(newId(), input.lineUserId, input.displayName, nowIso())
     .run();
