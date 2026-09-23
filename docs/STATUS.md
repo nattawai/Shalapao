@@ -29,7 +29,7 @@
 | workers toolchain | ✅ wrangler 4.124.0 (ตัวเดียว) · vitest 4.1.11 · pool-workers 0.22 · miniflare 5 · vite 8 |
 | `pnpm audit` (dev dependency) | ✅ 0 ช่องโหว่ (จาก 30) · sharp บังคับ `^0.35.4` ผ่าน `pnpm.overrides` |
 | LINE provider + channels | ✅ provider + LINE Login channel + LIFF สร้างแล้ว (ทะเบียนใน `..\_docs`) · bot (Messaging API) = v3 |
-| `services/` `routes/` `web/` | 🔄 `auth`+`pocket`+`category` service (สองตัวหลัง forwarder) · `routes/` pockets+categories ✅ · `entry`/`reconcile.service` · `web/` ❌ |
+| `services/` `routes/` `web/` | 🔄 `auth`+`pocket`+`category`+`entry` service · `reconcile.service` ✅ (มี business logic จริง ไม่ใช่ forwarder) · `routes/` pockets+categories+entries+transfers+reconcile ✅ · `web/` ❌ |
 | branch protection + public/private | ❌ ยังไม่เคาะ |
 
 ---
@@ -55,6 +55,8 @@
 | ด่านกันแก้งวดที่กระทบยอดแล้ว (ข้อตกลงข้อ 6) อยู่ที่ **repository** ไม่ใช่ service | guard `occurred_on <= last_reconciled_at` ใน `entry.repository` (createEntry + createTransfer เช็คทั้งสองกระเป๋า) | insert เกิดที่ไฟล์นั้นที่เดียว — ด่านต้องอยู่ตรง insert เหมือน user filter · service เพิ่ม error ที่อ่านง่ายทีหลังได้ แต่ห้ามเป็นด่านเดียว |
 | `last_reconciled_at` = วันที่ปิดงวดแล้วเท่านั้น (ห้ามวันนี้/อนาคต) · เก็บเป็น YYYY-MM-DD | `reconcile.service` บังคับ "ห้ามวันนี้/อนาคต" ตอนตั้งเส้น · trigger 0007 บังคับรูปแบบที่ D1 | ถ้าเส้น = วันนี้ รายการของวันนี้จะโดนปฏิเสธ → ผู้ใช้ต้องโกหกวันใน ledger = ทำลายสิ่งเดียวที่แอปสัญญา · เส้นเป็นอดีตเสมอจึงไม่บล็อกรายการวันนี้ และ entry ปรับยอด (ลงวันนี้) ไม่ชนเส้นตั้งแต่แรก ไม่ต้องพึ่งลำดับการเรียก · `date('now')` ของ SQLite เป็น UTC เชื่อไม่ได้ กฎ "วันนี้" จึงอยู่ที่ service ไม่ใช่ migration |
 | auth: ตัวตนมาจาก LINE ID token เท่านั้น · verify ที่ server · fail closed | `middleware/auth` อ่าน `Authorization` → `services/auth.service` (verify+aud/exp/iss+upsert · dep ฉีดทาง parameter) → `app-user.repository` | D1 ไม่มี row-level security — รับ `userId` จาก client แม้ทางเดียว = ปลอมเป็นคนอื่นได้ · LINE ล่มแล้วปล่อยผ่าน = เปิดประตูทิ้ง จึง fail closed (401) · ไม่ decode JWT เอง (LINE ถือกุญแจ) เลยไม่ต้องเพิ่ม dependency · `LIFF_LOGIN_CHANNEL_ID` ไม่ใช่ความลับ อยู่ `[vars]` |
+| กระทบยอดเทียบ **ยอด ณ สิ้นวัน asOfDate** ไม่ใช่ยอดรวมทั้งหมด · `pocket.repository.getBalanceAsOf` (`SUM WHERE occurred_on <= asOfDate`) ไม่ใช่ view | `getBalanceAsOf` + `applyReconcile` (INSERT ปรับ + ปิดงวด batch เดียว) ที่ repository · logic วัน/diff ที่ `reconcile.service` | เส้น `last_reconciled_at` เป็นอดีตเสมอ ยอดที่เทียบกับธนาคารจึงต้องเป็นยอด "ณ วันปิด" ไม่รวมรายการวันหลัง · view `pocket_balance` รวมทุกแถวไม่มีเงื่อนไขวัน ใช้ไม่ได้ · กฎ "asOfDate ต้องเป็นอดีต" อยู่ที่ **service** (ใช้ `today()` ไทย) เพราะ SQLite `date('now')` เป็น UTC เชื่อไม่ได้ · asOfDate == เส้นเดิม **ทำได้** (เกณฑ์ `>=`) — เส้นทางแก้ยอดที่กรอกผิดโดยกระทบยอดวันเดิมซ้ำ · รายการปรับ **INSERT ดิบ ไม่ผ่าน `createEntry`** เพราะ occurred_on == เส้น จะโดน `assertNotReconciled` ปฏิเสธตัวเอง — reconcile คือผู้เขียนรายการปิดงวดที่ได้รับอนุญาตรายเดียว (กันสิทธิ์เองใน `applyReconcile` เป็นด่านชดเชยเพราะข้าม auto-filter) |
+| กระเป๋า `kind = 'flow_through'` **กระทบยอดได้** ไม่ห้ามตาม kind | `reconcile.service` ไม่เช็ค kind | kind ยัง inert ใน v0 (เคาะ #24: kind เปลี่ยนวิธีคิดยอด = แก้ที่ view/migration ไม่ใช่โค้ดแอป) · คณิตของ reconcile ไม่ขึ้นกับ kind · การห้ามตาม kind = ประดิษฐ์พฤติกรรมที่เอกสารยังไม่นิยาม (โทษต่ำ: กระเป๋าเขา เขาเลือกเอง ไม่มี corruption) · **ต้องกลับมาทบทวนเมื่อ kind มีพฤติกรรมจริง** (ดู §7) |
 | ชนิด error: **repository โยน typed error เอง** (Forbidden/Conflict/Validation) · service ปล่อยผ่าน · route จุดเดียวแปลงเป็น HTTP | `domain/errors.ts` | ชนิดของ failure ไม่ใช่ business rule — เป็นการจัดหมวดที่ repo สร้างเองอยู่แล้ว · repo ไม่ต้องรู้จักเลข 403/409 · route ไม่ต้อง string-match ข้อความไทย (เปราะ) · ผลพลอยได้: `pocket.service`/`category.service` เป็น forwarder เพราะ v0 ไม่มีกฎที่ repo ไม่ได้ถือ — ยอมรับ ไม่ยัดกฎปลอม · error ตอบ message ไทยที่บอกทางออก (ต่างจาก 401 auth ที่ไม่บอกเหตุผล เพราะตรงนี้คือเจ้าของข้อมูลเอง) |
 
 ---
@@ -87,10 +89,10 @@
 
 ## 5. ขั้นถัดไป — เรียงลำดับ
 
-1. LIFF frontend จริง (แทน smoke page) — หน้าเดียว: รายการกระเป๋า + ยอด + เพิ่มรายการ · เรียก `/api/pockets` `/api/categories` ที่มีแล้ว
-2. `entry.service` + routes เพิ่ม/โยกรายการ (`POST /api/entries` · `/api/transfers`) — repository พร้อมแล้ว
-3. `reconcile.service` — เทียบยอด · ตั้ง `last_reconciled_at` (บังคับ "เส้นห้ามวันนี้/อนาคต")
-4. เคาะ public/private → ตั้ง branch protection บน `main` + `develop`
+1. LIFF frontend จริง (แทน smoke page) — หน้าเดียว: รายการกระเป๋า + ยอด + เพิ่มรายการ + **ปุ่มเช็คยอด** · เรียก API ที่มีครบแล้ว (`/api/pockets` · `/api/entries` · `/api/transfers` · `/api/pockets/:id/reconcile`)
+2. เคาะ public/private → ตั้ง branch protection บน `main` + `develop`
+
+เสร็จแล้ว: `entry.service` + routes (`POST /api/entries` · `/api/transfers`) · `reconcile.service` + routes (`GET/POST /api/pockets/:id/reconcile`)
 
 ---
 
@@ -121,3 +123,4 @@
 | LINE provider | ถ้าตั้งบอทกับ LIFF คนละ provider = `userId` คนละตัว แก้ยากมากตอนมีข้อมูลแล้ว |
 | `dist/web/index.html` | หน้า smoke test **ชั่วคราว** (v2 · โหลด LIFF SDK จาก CDN · vanilla ไม่มี build) — ใช้ API จริงได้ (ดู/สร้างกระเป๋า · เพิ่มรายการ · แปลงบาท↔สตางค์) แสดง error ดิบเพื่อ debug · **แทนที่** ตอนทำหน้าจอจริง (LIFF/React) ไม่ใช่ต่อยอด · `/api/me` ก็เป็น route ชั่วคราวคู่กัน |
 | `pocket.kind` (holds_balance/flow_through) | view `pocket_balance` (0006) **ไม่แยก kind** — balance = `SUM` รวมทุก entry · v0 เก็บ kind (zod enum) แต่ยังไม่มีผลต่อการคำนวณ · ถ้าเอกสารต้องการให้ kind เปลี่ยนวิธีคิดยอดจริง = แก้ที่ **view (migration ใหม่)** ไม่ใช่โค้ดแอป |
+| กระทบยอด (`reconcile`) กับ `flow_through` | **v0 อนุญาต flow_through ให้กระทบยอดได้** (ดู §2) เพราะ kind ยัง inert · 🔴 **วันที่ kind มีพฤติกรรมจริง (view kind-aware) ต้องกลับมาทบทวน `reconcile.service` ทันที** — ถ้า flow_through ควรมียอดเป็น 0 เสมอ การกระทบยอดมันจะกลายเป็นการลงรายการปรับที่ไม่มีความหมาย หรือขัดกับนิยามใหม่ |
