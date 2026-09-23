@@ -3,6 +3,7 @@ import { lineLoginChannelId } from './config';
 import { verifyLineIdToken } from './lib/line';
 import { authMiddleware, type AuthEnv } from './middleware/auth';
 import { categoryRoutes } from './routes/category.route';
+import { entryRoutes, transferRoutes } from './routes/entry.route';
 import { httpError } from './routes/http-error';
 import { me } from './routes/me.route';
 import { pocketRoutes } from './routes/pocket.route';
@@ -40,8 +41,8 @@ app.get('/api/me', me);
 
 app.route('/api/pockets', pocketRoutes);
 app.route('/api/categories', categoryRoutes);
-// app.route('/api/entries', entryRoutes);
-// app.post('/line/webhook', lineWebhook);   // v3
+app.route('/api/entries', entryRoutes);
+app.route('/api/transfers', transferRoutes);
 
 // จุดเดียวที่แปลง typed error (domain) และ ZodError → HTTP status
 app.onError(httpError);

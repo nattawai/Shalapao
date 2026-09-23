@@ -1,6 +1,6 @@
 # CLAUDE.md — Shalapao
 
-Version: 2.2 · Last Updated: 2026-09-16
+Version: 2.3 · Last Updated: 2026-09-23
 > อ่าน `..\CLAUDE.md` ก่อนเสมอ — ไฟล์นี้เพิ่มเฉพาะเรื่องของโปรเจกต์นี้
 >
 > 🔴 **แล้วอ่าน `docs\STATUS.md` ต่อทันที** — บอกว่าตอนนี้อยู่ตรงไหน ตัดสินใจอะไรไปแล้ว รอการอนุมัติอะไร และขั้นถัดไปคืออะไร
@@ -176,3 +176,14 @@ Shalapao/
   มี environment เดียวคือ production · ถ้า deploy จาก branch ได้ `main` จะเลิกเป็นตัวแทน
   ของสิ่งที่รันอยู่จริง แล้วไม่มีใครตอบได้ว่า production คือโค้ดชุดไหน
   (ยังไม่มี CD — deploy ด้วยมือ จึงต้องเป็นวินัยที่เขียนไว้ ไม่ใช่กลไกบังคับ)
+
+---
+
+## 10. Git — Dependabot กับ lockfile
+
+- **ถ้ามี PR ของเราค้างอยู่ อย่า merge PR ของ Dependabot แทรก** — ทั้งคู่แตะ `package.json` +
+  `pnpm-lock.yaml` เกือบทุกครั้งจึงชนกัน · ปล่อย Dependabot ไว้ท้ายสุดเสมอ พอ `main` ขยับ
+  มันจะ rebase ตัวเองอัตโนมัติ · merge ของเราก่อนเสียเวลาน้อยกว่า
+- **`pnpm-lock.yaml` ห้าม resolve conflict ด้วยมือ** — resolve `package.json` ให้เสร็จก่อน แล้ว
+  รัน `pnpm install` ทับ ให้ lockfile ถูกสร้างใหม่จากของจริง (lockfile ที่ merge มือมักได้ tree
+  ที่ไม่ตรงกับ `package.json` แล้วพังเงียบ ๆ)
