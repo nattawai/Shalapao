@@ -52,4 +52,13 @@ describe('verifyLineIdToken', () => {
     });
     await expect(verifyLineIdToken('tok', 'C')).rejects.toThrow();
   });
+
+  // 🔴 กัน LINE ค้าง — ต้องยิง fetch พร้อม AbortSignal.timeout ไม่งั้นถ้า LINE ค้าง
+  // request จะค้างตลอด ไม่ throw (fail closed ก็ไม่ทำงาน)
+  test('ยิง fetch พร้อม AbortSignal (timeout)', async () => {
+    const f = stubFetch(async () => new Response(JSON.stringify({ sub: 'U1' }), { status: 200 }));
+    await verifyLineIdToken('tok', 'C');
+    const [, init] = f.mock.calls[0] as [string, RequestInit];
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+  });
 });
