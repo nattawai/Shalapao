@@ -29,7 +29,7 @@
 | workers toolchain | ✅ wrangler 4.124.0 (ตัวเดียว) · vitest 4.1.11 · pool-workers 0.22 · miniflare 5 · vite 8 |
 | `pnpm audit` (dev dependency) | ✅ 0 ช่องโหว่ (จาก 30) · sharp บังคับ `^0.35.4` ผ่าน `pnpm.overrides` |
 | LINE provider + channels | ✅ provider + LINE Login channel + LIFF สร้างแล้ว (ทะเบียนใน `..\_docs`) · bot (Messaging API) = v3 |
-| `services/` `routes/` `web/` | 🔄 `auth`+`pocket`+`category`+`entry` service · `reconcile.service` ✅ (มี business logic จริง ไม่ใช่ forwarder) · `routes/` pockets+categories+entries+transfers+reconcile ✅ · `web/` ❌ |
+| `services/` `routes/` `web/` | 🔄 `auth`+`pocket`+`category`+`entry` service · `reconcile.service` ✅ (มี business logic จริง ไม่ใช่ forwarder) · `routes/` pockets+categories+entries+transfers+reconcile ✅ · `web/` 🔄 (หน้ารายการ+สร้างกระเป๋าแล้ว · เพิ่มรายการ/โยก/เช็คยอด ยังไม่วาง) |
 | branch protection + public/private | ❌ ยังไม่เคาะ |
 
 ---
@@ -121,6 +121,6 @@
 | `wrangler deploy --dry-run` | ลบออกจาก CI แล้ว (รอ `dist/web`) · เพิ่มกลับตอนมี web build |
 | coverage threshold 90% | `pnpm check` ไม่ได้รัน coverage · จะเจอตอนรัน `--coverage` เท่านั้น · ลดเหลือ 80 ได้ แต่อย่าปิด |
 | LINE provider | ถ้าตั้งบอทกับ LIFF คนละ provider = `userId` คนละตัว แก้ยากมากตอนมีข้อมูลแล้ว |
-| `dist/web/index.html` | หน้า smoke test **ชั่วคราว** (v2 · โหลด LIFF SDK จาก CDN · vanilla ไม่มี build) — ใช้ API จริงได้ (ดู/สร้างกระเป๋า · เพิ่มรายการ · แปลงบาท↔สตางค์) แสดง error ดิบเพื่อ debug · **แทนที่** ตอนทำหน้าจอจริง (LIFF/React) ไม่ใช่ต่อยอด · `/api/me` ก็เป็น route ชั่วคราวคู่กัน |
+| `dist/web/index.html` | หน้าจอ LIFF จริง v0 (ไฟล์เดียว vanilla · โหลด LIFF SDK จาก CDN · ไม่มี build step) — **PR E วางหน้ารายการกระเป๋า + สร้างกระเป๋าแล้ว** · เพิ่มรายการ/โยกเงิน (PR F) และปุ่มเช็คยอด (PR G) ยังไม่วาง · `/api/me` เป็น route ชั่วคราว (หน้าจอจริงไม่ได้ใช้แล้ว — ลบได้ตอนเก็บกวาด) |
 | `pocket.kind` (holds_balance/flow_through) | view `pocket_balance` (0006) **ไม่แยก kind** — balance = `SUM` รวมทุก entry · v0 เก็บ kind (zod enum) แต่ยังไม่มีผลต่อการคำนวณ · ถ้าเอกสารต้องการให้ kind เปลี่ยนวิธีคิดยอดจริง = แก้ที่ **view (migration ใหม่)** ไม่ใช่โค้ดแอป |
 | กระทบยอด (`reconcile`) กับ `flow_through` | **v0 อนุญาต flow_through ให้กระทบยอดได้** (ดู §2) เพราะ kind ยัง inert · 🔴 **วันที่ kind มีพฤติกรรมจริง (view kind-aware) ต้องกลับมาทบทวน `reconcile.service` ทันที** — ถ้า flow_through ควรมียอดเป็น 0 เสมอ การกระทบยอดมันจะกลายเป็นการลงรายการปรับที่ไม่มีความหมาย หรือขัดกับนิยามใหม่ |
