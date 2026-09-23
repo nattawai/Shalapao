@@ -1,6 +1,6 @@
 # STATUS — Shalapao
 
-อัปเดตล่าสุด: 2026-09-22
+อัปเดตล่าสุด: 2026-09-23
 > **อ่านไฟล์นี้ก่อนเริ่มงานทุกครั้ง** — บอกว่าตอนนี้อยู่ตรงไหน ตัดสินใจอะไรไปแล้ว และทำอะไรต่อ
 > Repo: https://github.com/nattawai/Shalapao
 
@@ -119,5 +119,5 @@
 | `wrangler deploy --dry-run` | ลบออกจาก CI แล้ว (รอ `dist/web`) · เพิ่มกลับตอนมี web build |
 | coverage threshold 90% | `pnpm check` ไม่ได้รัน coverage · จะเจอตอนรัน `--coverage` เท่านั้น · ลดเหลือ 80 ได้ แต่อย่าปิด |
 | LINE provider | ถ้าตั้งบอทกับ LIFF คนละ provider = `userId` คนละตัว แก้ยากมากตอนมีข้อมูลแล้ว |
-| `dist/web/index.html` | หน้า smoke test **ชั่วคราว** สำหรับ first deploy (โหลด LIFF SDK จาก CDN · ไม่มี build) · **แทนที่** ตอนทำหน้าจอจริง (LIFF/React) ไม่ใช่ต่อยอดจากมัน · `/api/me` ก็เป็น route ชั่วคราวคู่กัน |
+| `dist/web/index.html` | หน้า smoke test **ชั่วคราว** (v2 · โหลด LIFF SDK จาก CDN · vanilla ไม่มี build) — ใช้ API จริงได้ (ดู/สร้างกระเป๋า · เพิ่มรายการ · แปลงบาท↔สตางค์) แสดง error ดิบเพื่อ debug · **แทนที่** ตอนทำหน้าจอจริง (LIFF/React) ไม่ใช่ต่อยอด · `/api/me` ก็เป็น route ชั่วคราวคู่กัน |
 | `pocket.kind` (holds_balance/flow_through) | view `pocket_balance` (0006) **ไม่แยก kind** — balance = `SUM` รวมทุก entry · v0 เก็บ kind (zod enum) แต่ยังไม่มีผลต่อการคำนวณ · ถ้าเอกสารต้องการให้ kind เปลี่ยนวิธีคิดยอดจริง = แก้ที่ **view (migration ใหม่)** ไม่ใช่โค้ดแอป |
