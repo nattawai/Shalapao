@@ -107,6 +107,29 @@ export async function getPocket(
   return row ? mapRow(row) : null;
 }
 
+// ยอด ณ สิ้นวัน asOfDate — ต่างจาก view pocket_balance ที่รวมทุกแถวไม่มีเงื่อนไขวัน
+// กระทบยอดต้องเทียบยอด "ณ วันปิดงวด" (อดีตเสมอ) กับธนาคาร จึงตัดรายการของวันหลังทิ้ง
+// SUM ที่ SQL ไม่ดึงทุกแถวมาบวกใน JS · เริ่มจาก pocket_member เหมือนทุก query —
+// คนที่ไม่ใช่สมาชิกได้ 0 (COALESCE) ไม่มีทางเห็นยอดจริงของกระเป๋าคนอื่น
+export async function getBalanceAsOf(
+  db: D1Database,
+  userId: string,
+  pocketId: string,
+  asOfDate: string
+): Promise<number> {
+  const row = await db
+    .prepare(
+      `SELECT COALESCE(SUM(e.amount_satang), 0) AS balance
+       FROM pocket_member m
+       JOIN entry e ON e.pocket_id = m.pocket_id
+       WHERE m.user_id = ? AND m.left_at IS NULL
+         AND m.pocket_id = ? AND e.occurred_on <= ? AND e.deleted_at IS NULL`
+    )
+    .bind(userId, pocketId, asOfDate)
+    .first<{ balance: number }>();
+  return row?.balance ?? 0;
+}
+
 export async function createPocket(
   db: D1Database,
   userId: string,
