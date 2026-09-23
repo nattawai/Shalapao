@@ -53,13 +53,14 @@
 
 - [x] `pocket.service.ts` — forwarder (repository ถือ invariant · route ถือ HTTP mapping · v0 ไม่มีกฎเพิ่ม)
 - [x] `entry.service.ts` — forwarder (invariant/append-only/งวดกระทบยอดอยู่ที่ repository · route แปลง error)
-- [ ] `reconcile.service.ts` — เทียบยอดจริงกับยอดคำนวณ · ตั้ง `last_reconciled_at` (ต้องเป็นวันที่ปิดงวดแล้ว ห้ามวันนี้/อนาคต · เขียนเป็น YYYY-MM-DD — trigger 0007 บังคับรูปแบบ)
+- [x] `reconcile.service.ts` — เทียบยอดจริงกับยอดคำนวณ (`getBalanceAsOf` ยอด ณ วันปิดงวด) · ลงรายการปรับ + ตั้ง `last_reconciled_at` ใน batch เดียว · กฎ "เส้นต้องเป็นอดีต" (ใช้ `today()` ไทย ไม่ใช่ SQLite UTC) · เปิดงวดที่ปิดแล้วไม่ได้ (asOfDate == เส้นเดิมทำได้ — แก้ยอดที่กรอกผิด)
 
 ### ขอบระบบ
 
 - [x] `zod` validate ทุก input ที่ขอบ — ใช้ที่ `GET/POST /api/pockets` · `/api/categories` · ปฏิเสธ field ที่ไม่รู้จัก
 - [x] `GET/POST /api/pockets` · `GET/POST /api/categories` — ยอดเป็นสตางค์จาก view · typed error → HTTP · กันรั่วข้ามผู้ใช้ (test A ไม่เห็นของ B)
 - [x] `POST /api/entries` · `POST /api/transfers` · `GET /api/pockets/:id/entries` — zod (amount int≠0 · transfer>0 · occurredOn วันจริง) · 409 ทับงวดกระทบยอด · กระเป๋าคนอื่น → `[]` ไม่ใช่ 404
+- [x] `GET /api/pockets/:id/reconcile/preview` (อ่านอย่างเดียว ไม่เขียน) · `POST /api/pockets/:id/reconcile` — 400 เส้นวันนี้/อนาคต/วันไม่จริง/ยอดทศนิยม · 409 เปิดงวดที่ปิดแล้ว · 403 กระเป๋าคนอื่น (ไม่มีแถวเกิด)
 - [x] LINE Login → map `userId` เป็น `app_user` — verify ID token กับ LINE · upsert by `line_user_id`
 - [x] auth middleware ยัด `userId` ให้ทุก route ใต้ `/api/*` · `userId` มาจาก token ที่ LINE เซ็นเท่านั้น (ไม่รับจาก client) · fail closed เมื่อ LINE ล่ม
 

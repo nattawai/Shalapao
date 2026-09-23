@@ -1,5 +1,6 @@
 import { ForbiddenError } from '../domain/errors';
 import { newId, nowIso } from '../domain/id';
+import { getEntry, type Entry } from './entry.repository';
 
 export type PocketKind = 'holds_balance' | 'flow_through';
 export type MemberRole = 'owner' | 'editor' | 'viewer';
@@ -105,6 +106,82 @@ export async function getPocket(
     .bind(userId, pocketId)
     .first<PocketRow>();
   return row ? mapRow(row) : null;
+}
+
+// ยอด ณ สิ้นวัน asOfDate — ต่างจาก view pocket_balance ที่รวมทุกแถวไม่มีเงื่อนไขวัน
+// กระทบยอดต้องเทียบยอด "ณ วันปิดงวด" (อดีตเสมอ) กับธนาคาร จึงตัดรายการของวันหลังทิ้ง
+// SUM ที่ SQL ไม่ดึงทุกแถวมาบวกใน JS · เริ่มจาก pocket_member เหมือนทุก query —
+// คนที่ไม่ใช่สมาชิกได้ 0 (COALESCE) ไม่มีทางเห็นยอดจริงของกระเป๋าคนอื่น
+export async function getBalanceAsOf(
+  db: D1Database,
+  userId: string,
+  pocketId: string,
+  asOfDate: string
+): Promise<number> {
+  const row = await db
+    .prepare(
+      `SELECT COALESCE(SUM(e.amount_satang), 0) AS balance
+       FROM pocket_member m
+       JOIN entry e ON e.pocket_id = m.pocket_id
+       WHERE m.user_id = ? AND m.left_at IS NULL
+         AND m.pocket_id = ? AND e.occurred_on <= ? AND e.deleted_at IS NULL`
+    )
+    .bind(userId, pocketId, asOfDate)
+    .first<{ balance: number }>();
+  return row?.balance ?? 0;
+}
+
+export type ApplyReconcileInput = {
+  pocketId: string;
+  asOfDate: string;
+  diffSatang: number;
+};
+
+// ปิดงวดกระทบยอด: ลงรายการปรับ (ถ้า diff ≠ 0) แล้วเลื่อนเส้น last_reconciled_at
+//
+// รายการปรับต้อง INSERT ดิบ ไม่ผ่าน createEntry — เพราะ occurred_on = asOfDate เท่ากับ
+// เส้นที่กำลังจะตั้ง assertNotReconciled (occurred_on <= เส้น) จะปฏิเสธมันเอง · reconcile
+// คือผู้เขียนรายการปิดงวดที่ได้รับอนุญาตเพียงรายเดียว — โค้ดที่อื่นห้ามเลียนแบบ INSERT ดิบนี้
+// เพราะจะข้ามด่านกันนับซ้ำ (ข้อตกลงข้อ 6) · กรณีที่ทำให้จำเป็นจริง: กรอกยอดผิดแล้วกระทบยอด
+// วันเดิมซ้ำเพื่อแก้ (asOfDate == เส้นเดิม) ถ้าไม่มี INSERT ดิบ = กรอกผิดครั้งเดียวแก้ไม่ได้ตลอดกาล
+//
+// INSERT ดิบข้าม auto-filter ทุกตัว จึงกันสิทธิ์เองที่นี่เป็นด่านชดเชย · INSERT ปรับกับ UPDATE
+// เส้นต้องอยู่ batch เดียว (all-or-nothing) — ถ้าครึ่ง ๆ กลาง ๆ: ปรับแต่ไม่ปิด = ปรับซ้ำตอน retry
+// · ปิดแต่ไม่ปรับ = ยอดผิดถาวร
+export async function applyReconcile(
+  db: D1Database,
+  userId: string,
+  input: ApplyReconcileInput
+): Promise<Entry | null> {
+  const member = await db
+    .prepare('SELECT 1 AS ok FROM pocket_member WHERE pocket_id = ? AND user_id = ? AND left_at IS NULL')
+    .bind(input.pocketId, userId)
+    .first<{ ok: number }>();
+  if (!member) throw new ForbiddenError('pocket_forbidden', 'ไม่มีสิทธิ์ในกระเป๋านี้ — ต้องเป็นสมาชิกก่อนจึงจะกระทบยอดได้');
+
+  const setLine = db
+    .prepare('UPDATE pocket SET last_reconciled_at = ? WHERE id = ?')
+    .bind(input.asOfDate, input.pocketId);
+
+  if (input.diffSatang === 0) {
+    await setLine.run();
+    return null;
+  }
+
+  const adjustmentId = newId();
+  await db.batch([
+    db
+      .prepare(
+        `INSERT INTO entry (id, pocket_id, created_by_user_id, amount_satang, occurred_on, source, created_at)
+         VALUES (?, ?, ?, ?, ?, 'reconcile', ?)`
+      )
+      .bind(adjustmentId, input.pocketId, userId, input.diffSatang, input.asOfDate, nowIso()),
+    setLine
+  ]);
+
+  const adjustment = await getEntry(db, userId, adjustmentId);
+  if (!adjustment) throw new Error('ลงรายการปรับแล้วอ่านกลับไม่เจอ — ไม่ควรเกิด');
+  return adjustment;
 }
 
 export async function createPocket(

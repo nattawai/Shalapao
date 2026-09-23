@@ -7,6 +7,7 @@ import { entryRoutes, transferRoutes } from './routes/entry.route';
 import { httpError } from './routes/http-error';
 import { me } from './routes/me.route';
 import { pocketRoutes } from './routes/pocket.route';
+import { reconcileRoutes } from './routes/reconcile.route';
 import { upsertUserByLineId } from './repositories/app-user.repository';
 
 const app = new Hono<AuthEnv>();
@@ -40,6 +41,7 @@ app.use(
 app.get('/api/me', me);
 
 app.route('/api/pockets', pocketRoutes);
+app.route('/api/pockets', reconcileRoutes);
 app.route('/api/categories', categoryRoutes);
 app.route('/api/entries', entryRoutes);
 app.route('/api/transfers', transferRoutes);
