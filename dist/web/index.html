@@ -287,6 +287,8 @@
           host.innerHTML = '<div class="empty">ยังไม่มีกระเป๋า<br />เริ่มจากสร้างใบแรกด้านล่าง</div>';
           return;
         }
+        // แถวที่มีลูกแสดงยอดรวมทั้งกิ่ง (rollup) · ใบที่ไม่มีลูกแสดงยอดตัวเอง (สองค่าเท่ากันอยู่แล้ว)
+        const hasChildren = new Set(pockets.filter((x) => x.parentId).map((x) => x.parentId));
         const list = document.createElement('div');
         list.className = 'pocket-list';
         for (const { pocket, child } of orderByParent(pockets)) {
@@ -295,9 +297,10 @@
           const name = document.createElement('span');
           name.className = 'name';
           name.textContent = pocket.name;
+          const shown = hasChildren.has(pocket.id) ? (pocket.rollupSatang ?? pocket.balanceSatang) : pocket.balanceSatang;
           const amt = document.createElement('span');
-          amt.className = 'amount' + (pocket.balanceSatang < 0 ? ' neg' : '');
-          amt.textContent = formatBaht(pocket.balanceSatang);
+          amt.className = 'amount' + (shown < 0 ? ' neg' : '');
+          amt.textContent = formatBaht(shown);
           row.append(name, amt);
           row.addEventListener('click', () => openStatement(pocket));
           list.appendChild(row);
