@@ -45,6 +45,7 @@
 ### repositories
 
 - [x] `pocket.repository.ts` — อ่าน/สร้าง · กันรั่วข้ามผู้ใช้ทั้ง read และ `parentId`/`categoryId`
+- [x] rollup ยอดกระเป๋าแม่ (ยอดตัวเอง + ลูกทุกชั้น) — view `pocket_subtree` (recursive, 0008) + กรอง `pocket_member` ต่อผู้ใช้ใน query เดียว (ไม่ N+1) · `getRollupBalanceAsOf` (มีขอบวัน) พร้อมสำหรับ reconcile กระเป๋าแม่
 - [x] `entry.repository.ts` — append-only · โยกเงินสองขาใน batch เดียว · กันลงรายการทับงวดที่กระทบยอดแล้ว (`last_reconciled_at` เกณฑ์ `<=` · เช็คทั้งสองกระเป๋าตอนโยก) · กัน transfer ยอด ≤ 0 และโยกเข้าตัวเอง
 - [x] `category.repository.ts` — user-scoped · archived filter
 - [ ] แก้/ลบรายการที่กรอกผิด — reversal entry (`reverses_id`) + soft delete (`deleted_at`) · ยังไม่มีฟังก์ชันใน `entry.repository.ts`
