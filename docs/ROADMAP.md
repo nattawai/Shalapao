@@ -55,7 +55,7 @@
 
 - [x] `pocket.service.ts` — forwarder (repository ถือ invariant · route ถือ HTTP mapping · v0 ไม่มีกฎเพิ่ม)
 - [x] `entry.service.ts` — forwarder (invariant/append-only/งวดกระทบยอดอยู่ที่ repository · route แปลง error)
-- [x] `reconcile.service.ts` — เทียบยอดจริงกับยอดคำนวณ (`getBalanceAsOf` ยอด ณ วันปิดงวด) · ลงรายการปรับ + ตั้ง `last_reconciled_at` ใน batch เดียว · กฎ "เส้นต้องเป็นอดีต" (ใช้ `today()` ไทย ไม่ใช่ SQLite UTC) · เปิดงวดที่ปิดแล้วไม่ได้ (asOfDate == เส้นเดิมทำได้ — แก้ยอดที่กรอกผิด)
+- [x] `reconcile.service.ts` — เทียบยอดจริงกับยอดคำนวณ (`getRollupBalanceAsOf` ยอดรวมทั้งกิ่ง ณ วันปิดงวด) · ลงรายการปรับ + ตั้ง `last_reconciled_at` ใน batch เดียว · กฎ "เส้นต้องเป็นอดีต" (ใช้ `today()` ไทย ไม่ใช่ SQLite UTC) · เปิดงวดที่ปิดแล้วไม่ได้ (asOfDate == เส้นเดิมทำได้ — แก้ยอดที่กรอกผิด)
 
 ### ขอบระบบ
 
