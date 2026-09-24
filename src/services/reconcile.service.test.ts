@@ -5,7 +5,7 @@ import { previewReconcile, reconcile } from './reconcile.service';
 
 vi.mock('../repositories/pocket.repository', () => ({
   getPocket: vi.fn(),
-  getBalanceAsOf: vi.fn(),
+  getRollupBalanceAsOf: vi.fn(),
   applyReconcile: vi.fn()
 }));
 
@@ -25,19 +25,19 @@ beforeEach(() => {
 
 describe('previewReconcile — อ่านอย่างเดียว ไม่เขียน', () => {
   test('คืนยอดที่ระบบคิด (expected) · actual/diff = null · ไม่แตะ applyReconcile', async () => {
-    vi.mocked(pocketRepo.getBalanceAsOf).mockResolvedValue(150000);
+    vi.mocked(pocketRepo.getRollupBalanceAsOf).mockResolvedValue(150000);
 
     const out = await previewReconcile(db, 'u1', 'p1', '2026-03-15');
 
     expect(out).toEqual({ asOfDate: '2026-03-15', expectedSatang: 150000, actualSatang: null, diffSatang: null });
-    expect(pocketRepo.getBalanceAsOf).toHaveBeenCalledWith(db, 'u1', 'p1', '2026-03-15');
+    expect(pocketRepo.getRollupBalanceAsOf).toHaveBeenCalledWith(db, 'u1', 'p1', '2026-03-15');
     expect(pocketRepo.applyReconcile).not.toHaveBeenCalled();
   });
 });
 
 describe('reconcile — เทียบแล้วปิดงวด', () => {
   test('diff = actual − expected · สั่ง applyReconcile ด้วย diff ที่คิดได้ · คืนผลครบ', async () => {
-    vi.mocked(pocketRepo.getBalanceAsOf).mockResolvedValue(150000);
+    vi.mocked(pocketRepo.getRollupBalanceAsOf).mockResolvedValue(150000);
     const adjustment = { id: 'e-adj' } as never;
     vi.mocked(pocketRepo.applyReconcile).mockResolvedValue(adjustment);
 
@@ -59,7 +59,7 @@ describe('reconcile — เทียบแล้วปิดงวด', () => {
   });
 
   test('diff = 0 → applyReconcile คืน null → adjustmentEntry = null', async () => {
-    vi.mocked(pocketRepo.getBalanceAsOf).mockResolvedValue(150000);
+    vi.mocked(pocketRepo.getRollupBalanceAsOf).mockResolvedValue(150000);
     vi.mocked(pocketRepo.applyReconcile).mockResolvedValue(null);
 
     const out = await reconcile(db, 'u1', { pocketId: 'p1', asOfDate: '2026-03-15', actualBalanceSatang: 150000 });
@@ -75,7 +75,7 @@ describe('กฎวันที่ (SQL บังคับไม่ได้ —
     await expect(
       reconcile(db, 'u1', { pocketId: 'p1', asOfDate: '2026-03-20', actualBalanceSatang: 1 })
     ).rejects.toBeInstanceOf(ValidationError);
-    expect(pocketRepo.getBalanceAsOf).not.toHaveBeenCalled();
+    expect(pocketRepo.getRollupBalanceAsOf).not.toHaveBeenCalled();
     expect(pocketRepo.applyReconcile).not.toHaveBeenCalled();
   });
 
@@ -97,7 +97,7 @@ describe('กฎวันที่ (SQL บังคับไม่ได้ —
   // เกณฑ์คือ >= เส้น — กรอกยอดผิดแล้วต้องแก้วันเดิมได้
   test('asOfDate = เส้นเดิมพอดี → ผ่าน (แก้ยอดที่กรอกผิดวันเดิมได้)', async () => {
     vi.mocked(pocketRepo.getPocket).mockResolvedValue(pocket('2026-03-10'));
-    vi.mocked(pocketRepo.getBalanceAsOf).mockResolvedValue(100000);
+    vi.mocked(pocketRepo.getRollupBalanceAsOf).mockResolvedValue(100000);
     vi.mocked(pocketRepo.applyReconcile).mockResolvedValue({ id: 'e-adj' } as never);
 
     await reconcile(db, 'u1', { pocketId: 'p1', asOfDate: '2026-03-10', actualBalanceSatang: 100500 });

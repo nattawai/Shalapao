@@ -45,6 +45,16 @@ async function reconcilePocket(pocketId: string, date: string): Promise<void> {
   await db.prepare('UPDATE pocket SET last_reconciled_at = ? WHERE id = ?').bind(date, pocketId).run();
 }
 
+async function seedChildPocket(userId: string, parentId: string): Promise<string> {
+  const id = newId();
+  const now = nowIso();
+  await db.batch([
+    db.prepare('INSERT INTO pocket (id, parent_id, name, kind, created_at) VALUES (?, ?, ?, ?, ?)').bind(id, parentId, 'child', 'holds_balance', now),
+    db.prepare("INSERT INTO pocket_member (pocket_id, user_id, role, joined_at) VALUES (?, ?, 'owner', ?)").bind(id, userId, now)
+  ]);
+  return id;
+}
+
 let alice: string;
 let bob: string;
 let alicePocket: string;
@@ -126,6 +136,38 @@ describe('createEntry — กันลงรายการในงวดที
   test('กระเป๋าที่ยังไม่เคยกระทบยอด (เส้น = NULL) → ลงย้อนหลังได้', async () => {
     const e = await createEntry(db, alice, { pocketId: alicePocket, amountSatang: 100, occurredOn: '2020-01-01' });
     expect(e.occurredOn).toBe('2020-01-01');
+  });
+});
+
+// reconcile ทำงานระดับ rollup (ยอดแม่ = ตัวเอง + ลูก) · ถ้าลงรายการย้อนหลังในลูก
+// ได้ทั้งที่แม่ปิดงวดไปแล้ว rollup ของแม่ ณ วันปิดจะเปลี่ยน = กระทบยอดเป็นโมฆะเงียบ ๆ
+// ด่านจึงต้องดูเส้นของกระเป๋านี้ + แม่ทุกชั้น แล้วใช้เส้นที่ใหม่ที่สุด
+describe('createEntry — กันลงรายการทับงวดที่แม่กระทบยอดแล้ว', () => {
+  test('แม่กระทบยอดถึง 2026-03-15 → ลงย้อนหลังในลูก → ปฏิเสธ ไม่มีแถวเกิด', async () => {
+    const child = await seedChildPocket(alice, alicePocket);
+    await reconcilePocket(alicePocket, '2026-03-15');
+    const before = await countEntries();
+    await expect(
+      createEntry(db, alice, { pocketId: child, amountSatang: 100, occurredOn: '2026-03-15' })
+    ).rejects.toBeInstanceOf(ConflictError);
+    expect(await countEntries()).toBe(before);
+  });
+
+  test('ลูกลงรายการหลังเส้นของแม่ → ผ่าน', async () => {
+    const child = await seedChildPocket(alice, alicePocket);
+    await reconcilePocket(alicePocket, '2026-03-15');
+    const e = await createEntry(db, alice, { pocketId: child, amountSatang: 100, occurredOn: '2026-03-16' });
+    expect(e.occurredOn).toBe('2026-03-16');
+  });
+
+  // ใช้เส้นที่ใหม่ที่สุดในสายเลือด: ลูกปิดถึง 03-20 แม่ปิดถึง 03-10 → เกณฑ์คือ 03-20
+  test('ใช้เส้นที่ใหม่ที่สุดระหว่างลูกกับแม่', async () => {
+    const child = await seedChildPocket(alice, alicePocket);
+    await reconcilePocket(alicePocket, '2026-03-10');
+    await reconcilePocket(child, '2026-03-20');
+    await expect(
+      createEntry(db, alice, { pocketId: child, amountSatang: 100, occurredOn: '2026-03-18' })
+    ).rejects.toBeInstanceOf(ConflictError);
   });
 });
 
