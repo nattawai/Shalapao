@@ -2,7 +2,7 @@
 <html lang="th">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Shalapao</title>
     <style>
       :root {
@@ -13,6 +13,7 @@
         --muted: #8a8f98;
         --border: #e5e7eb;
         --danger: #d92d20;
+        --pos: #067d3f;
       }
       * { box-sizing: border-box; }
       body {
@@ -25,7 +26,7 @@
         padding: 14px 16px; background: var(--card); border-bottom: 1px solid var(--border);
         position: sticky; top: 0; z-index: 5;
       }
-      header h1 { font-size: 18px; margin: 0; flex: 1; }
+      header h1 { font-size: 18px; margin: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .back {
         background: none; border: 0; font-size: 22px; line-height: 1; padding: 0 4px;
         color: var(--muted); cursor: pointer; width: auto;
@@ -40,9 +41,8 @@
         border: 0; border-bottom: 1px solid var(--border);
         padding: 14px 16px; font-size: 16px; color: var(--text); cursor: pointer;
       }
-      .pocket:first-child { border-top-left-radius: 12px; border-top-right-radius: 12px; }
-      .pocket:last-child { border-bottom: 0; border-bottom-left-radius: 12px; border-bottom-right-radius: 12px; }
       .pocket-list { background: var(--card); border-radius: 12px; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,.04); }
+      .pocket:last-child { border-bottom: 0; }
       .pocket .name { flex: 1; }
       .pocket.child .name::before { content: '└ '; color: var(--muted); }
       .pocket.child { padding-left: 32px; }
@@ -67,7 +67,22 @@
       }
       .form-error { color: var(--danger); font-size: 14px; margin-top: 12px; min-height: 20px; }
 
-      /* แถบ error กลางหน้า — ทุกครั้งที่โหลดล้ม ผู้ใช้ต้องเห็น ไม่กลืนเงียบ */
+      /* สลับเงินออก/เงินเข้า — เลือกก่อน ผู้ใช้ไม่ต้องพิมพ์เครื่องหมายลบ */
+      .seg { display: flex; gap: 8px; }
+      .seg button { flex: 1; padding: 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--card); color: var(--text); cursor: pointer; font-weight: 600; }
+      .seg button.active { color: #fff; }
+      .seg button.active[data-type="out"] { background: var(--danger); border-color: var(--danger); }
+      .seg button.active[data-type="in"] { background: var(--pos); border-color: var(--pos); }
+
+      /* รายการเดินบัญชี */
+      .entry { display: flex; justify-content: space-between; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--border); background: var(--card); }
+      .entry:last-child { border-bottom: 0; }
+      .entry .date { font-size: 13px; color: var(--muted); }
+      .entry .amt { font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
+      .entry .amt.in { color: var(--pos); }
+      .entry .amt.out { color: var(--danger); }
+      .list-card { background: var(--card); border-radius: 12px; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,.04); }
+
       #banner {
         margin: 16px; padding: 14px 16px; border-radius: 10px;
         background: #fef3f2; border: 1px solid #fecdca; color: var(--danger);
@@ -92,7 +107,9 @@
         <header><h1>กระเป๋าของฉัน</h1></header>
         <main>
           <div id="pockets"><p class="empty">กำลังโหลด…</p></div>
-          <button class="btn" id="goCreate">＋ สร้างกระเป๋า</button>
+          <button class="btn" id="goEntry">＋ เพิ่มรายการ</button>
+          <button class="btn-ghost" id="goTransfer">โยกเงินระหว่างกระเป๋า</button>
+          <button class="btn-ghost" id="goCreate">สร้างกระเป๋าใหม่</button>
         </main>
       </section>
 
@@ -111,6 +128,57 @@
           <div class="form-error" id="cpError"></div>
         </main>
       </section>
+
+      <!-- หน้าจอ 3: เพิ่มรายการ -->
+      <section id="screen-entry" class="screen" hidden>
+        <header>
+          <button class="back" data-back aria-label="กลับ">‹</button>
+          <h1>เพิ่มรายการ</h1>
+        </header>
+        <main>
+          <div class="seg" id="enSeg">
+            <button type="button" data-type="out" class="active">เงินออก</button>
+            <button type="button" data-type="in">เงินเข้า</button>
+          </div>
+          <label for="enPocket">กระเป๋า</label>
+          <select id="enPocket"></select>
+          <label for="enBaht">จำนวนเงิน (บาท)</label>
+          <input id="enBaht" type="text" inputmode="decimal" placeholder="0.00" />
+          <label for="enDate">วันที่</label>
+          <input id="enDate" type="date" />
+          <label for="enNote">บันทึก (ไม่บังคับ)</label>
+          <input id="enNote" type="text" placeholder="เช่น ค่ากาแฟ" />
+          <button class="btn" id="enSubmit">บันทึก</button>
+          <div class="form-error" id="enError"></div>
+        </main>
+      </section>
+
+      <!-- หน้าจอ 4: โยกเงิน -->
+      <section id="screen-transfer" class="screen" hidden>
+        <header>
+          <button class="back" data-back aria-label="กลับ">‹</button>
+          <h1>โยกเงิน</h1>
+        </header>
+        <main>
+          <label for="tfFrom">จาก</label>
+          <select id="tfFrom"></select>
+          <label for="tfTo">ไป</label>
+          <select id="tfTo"></select>
+          <label for="tfBaht">จำนวนเงิน (บาท)</label>
+          <input id="tfBaht" type="text" inputmode="decimal" placeholder="0.00" />
+          <button class="btn" id="tfSubmit">โยกเงิน</button>
+          <div class="form-error" id="tfError"></div>
+        </main>
+      </section>
+
+      <!-- หน้ารายการเดินบัญชี -->
+      <section id="screen-statement" class="screen" hidden>
+        <header>
+          <button class="back" data-back aria-label="กลับ">‹</button>
+          <h1 id="stTitle">รายการ</h1>
+        </header>
+        <main><div id="stList"><p class="empty">กำลังโหลด…</p></div></main>
+      </section>
     </div>
 
     <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
@@ -124,11 +192,18 @@
       function formatBaht(satang) {
         return (satang / 100).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
       }
-      // บาทที่ผู้ใช้กรอก → สตางค์ · Math.round เพราะ baht*100 บน float อาจได้ 6099.999
+      // บาทที่ผู้ใช้กรอก → สตางค์ · ตรวจรูปแบบด้วย regex ก่อน parse — parseFloat รับขยะต่อท้าย
+      // ('100abc'→100, '1e5'→100000) จึงต้องกันเอง: ตัวเลข + ทศนิยมไม่เกิน 2 ตำแหน่งเท่านั้น
+      // Math.round เพราะ baht*100 บน float อาจได้ 6099.999
       function bahtToSatang(bahtStr) {
-        const baht = parseFloat(String(bahtStr).trim());
-        if (Number.isNaN(baht)) throw new Error('จำนวนเงินไม่ถูกต้อง');
-        return Math.round(baht * 100);
+        const s = String(bahtStr).trim();
+        if (!/^\d+(\.\d{1,2})?$/.test(s)) {
+          throw new Error('จำนวนเงินไม่ถูกต้อง — ใส่เฉพาะตัวเลข ทศนิยมไม่เกิน 2 ตำแหน่ง');
+        }
+        return Math.round(parseFloat(s) * 100);
+      }
+      function todayBangkok() {
+        return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok' }).format(new Date());
       }
 
       // ---------- เรียก API: ใส่ Authorization ให้ · โยน error พร้อม message ไทย ----------
@@ -173,6 +248,16 @@
       }
       function clearBanner() { document.getElementById('banner').hidden = true; }
 
+      function fillPocketOptions(sel, placeholder) {
+        sel.innerHTML = placeholder ? '<option value="">' + placeholder + '</option>' : '';
+        for (const p of pocketsCache) {
+          const opt = document.createElement('option');
+          opt.value = p.id;
+          opt.textContent = p.name;
+          sel.appendChild(opt);
+        }
+      }
+
       // ---------- หน้าจอ 1: รายการกระเป๋า ----------
       // เรียงพ่อก่อนแล้วตามด้วยลูกของมัน (parentId) · v0 รองรับชั้นเดียว
       function orderByParent(pockets) {
@@ -184,7 +269,7 @@
             if (!children.has(p.parentId)) children.set(p.parentId, []);
             children.get(p.parentId).push(p);
           } else {
-            tops.push(p); // ไม่มีแม่ หรือแม่มองไม่เห็น → ถือเป็นระดับบน
+            tops.push(p);
           }
         }
         const out = [];
@@ -214,6 +299,7 @@
           amt.className = 'amount' + (pocket.balanceSatang < 0 ? ' neg' : '');
           amt.textContent = formatBaht(pocket.balanceSatang);
           row.append(name, amt);
+          row.addEventListener('click', () => openStatement(pocket));
           list.appendChild(row);
         }
         host.appendChild(list);
@@ -235,14 +321,7 @@
       function openCreate() {
         document.getElementById('cpName').value = '';
         document.getElementById('cpError').textContent = '';
-        const sel = document.getElementById('cpParent');
-        sel.innerHTML = '<option value="">— ไม่มีกระเป๋าแม่ —</option>';
-        for (const p of pocketsCache) {
-          const opt = document.createElement('option');
-          opt.value = p.id;
-          opt.textContent = p.name;
-          sel.appendChild(opt);
-        }
+        fillPocketOptions(document.getElementById('cpParent'), '— ไม่มีกระเป๋าแม่ —');
         show('screen-create');
       }
 
@@ -256,7 +335,7 @@
         errEl.textContent = '';
         try {
           await api('POST', '/api/pockets', parentId ? { name, parentId } : { name });
-          await loadPockets(); // โหลดใหม่ให้เห็นกระเป๋าที่เพิ่งสร้าง
+          await loadPockets();
           show('screen-list');
         } catch (err) {
           errEl.textContent = err.message;
@@ -265,8 +344,161 @@
         }
       }
 
+      // ---------- หน้าจอ 3: เพิ่มรายการ ----------
+      let entryType = 'out'; // ดีฟอลต์เงินออก · โค้ดใส่เครื่องหมายเอง ผู้ใช้ไม่พิมพ์ลบ
+      let entryDateTouched = false;
+
+      function openEntry() {
+        if (pocketsCache.length === 0) { showBanner('ยังไม่มีกระเป๋า — สร้างกระเป๋าก่อนจึงจะเพิ่มรายการได้'); return; }
+        entryType = 'out';
+        for (const b of document.querySelectorAll('#enSeg button')) b.classList.toggle('active', b.dataset.type === 'out');
+        fillPocketOptions(document.getElementById('enPocket'), null);
+        document.getElementById('enBaht').value = '';
+        document.getElementById('enNote').value = '';
+        document.getElementById('enDate').value = todayBangkok();
+        entryDateTouched = false;
+        document.getElementById('enError').textContent = '';
+        show('screen-entry');
+      }
+
+      async function submitEntry() {
+        const errEl = document.getElementById('enError');
+        errEl.textContent = '';
+        let magnitude;
+        try {
+          magnitude = bahtToSatang(document.getElementById('enBaht').value);
+        } catch (err) {
+          errEl.textContent = err.message; return;
+        }
+        if (magnitude === 0) { errEl.textContent = 'จำนวนเงินต้องมากกว่า 0'; return; }
+        // เงินออก = ติดลบ · เงินเข้า = บวก — เครื่องหมายมาจากปุ่มที่เลือก
+        const amountSatang = entryType === 'out' ? -magnitude : magnitude;
+        const body = { pocketId: document.getElementById('enPocket').value, amountSatang };
+        // ไม่แก้วันที่ → ไม่ส่ง occurredOn ปล่อย backend ใส่วันไทยเอง
+        if (entryDateTouched) body.occurredOn = document.getElementById('enDate').value;
+        const note = document.getElementById('enNote').value.trim();
+        if (note) body.note = note;
+
+        const btn = document.getElementById('enSubmit');
+        btn.disabled = true;
+        try {
+          await api('POST', '/api/entries', body);
+          await loadPockets(); // เห็นยอดเปลี่ยนทันที
+          show('screen-list');
+        } catch (err) {
+          errEl.textContent = err.message; // รวม 409 ทับงวดกระทบยอด — message บอกทางออกแล้ว
+        } finally {
+          btn.disabled = false;
+        }
+      }
+
+      // ---------- หน้าจอ 4: โยกเงิน ----------
+      function openTransfer() {
+        if (pocketsCache.length < 2) { showBanner('ต้องมีอย่างน้อยสองกระเป๋าจึงจะโยกเงินได้'); return; }
+        fillPocketOptions(document.getElementById('tfFrom'), null);
+        fillPocketOptions(document.getElementById('tfTo'), null);
+        document.getElementById('tfTo').selectedIndex = 1; // ปลายทางเริ่มที่ใบอื่น กันซ้ำต้นทาง
+        document.getElementById('tfBaht').value = '';
+        validateTransfer();
+        show('screen-transfer');
+      }
+
+      // กันเลือกกระเป๋าเดียวกันตั้งแต่หน้าจอ (backend กันอยู่แล้ว แต่อย่าให้กดแล้วค่อยโดนปฏิเสธ)
+      function validateTransfer() {
+        const from = document.getElementById('tfFrom').value;
+        const to = document.getElementById('tfTo').value;
+        const errEl = document.getElementById('tfError');
+        const same = from === to;
+        errEl.textContent = same ? 'เลือกกระเป๋าปลายทางที่ต่างจากต้นทาง' : '';
+        document.getElementById('tfSubmit').disabled = same;
+      }
+
+      async function submitTransfer() {
+        const errEl = document.getElementById('tfError');
+        const fromPocketId = document.getElementById('tfFrom').value;
+        const toPocketId = document.getElementById('tfTo').value;
+        if (fromPocketId === toPocketId) { errEl.textContent = 'เลือกกระเป๋าปลายทางที่ต่างจากต้นทาง'; return; }
+        let amountSatang;
+        try {
+          amountSatang = bahtToSatang(document.getElementById('tfBaht').value);
+        } catch (err) {
+          errEl.textContent = err.message; return;
+        }
+        if (amountSatang === 0) { errEl.textContent = 'จำนวนเงินต้องมากกว่า 0'; return; }
+        const btn = document.getElementById('tfSubmit');
+        btn.disabled = true;
+        errEl.textContent = '';
+        try {
+          await api('POST', '/api/transfers', { fromPocketId, toPocketId, amountSatang });
+          await loadPockets();
+          show('screen-list');
+        } catch (err) {
+          errEl.textContent = err.message;
+        } finally {
+          btn.disabled = false;
+        }
+      }
+
+      // ---------- หน้ารายการเดินบัญชี ----------
+      function renderEntries(entries) {
+        const host = document.getElementById('stList');
+        host.innerHTML = '';
+        if (entries.length === 0) { host.innerHTML = '<div class="empty">ยังไม่มีรายการในกระเป๋านี้</div>'; return; }
+        const card = document.createElement('div');
+        card.className = 'list-card';
+        for (const e of entries) {
+          const row = document.createElement('div');
+          row.className = 'entry';
+          const meta = document.createElement('div');
+          const date = document.createElement('div');
+          date.className = 'date';
+          date.textContent = e.occurredOn;
+          const note = document.createElement('div');
+          note.textContent = e.note || (e.source === 'reconcile' ? 'ปรับยอดจากการเช็คยอด' : '—');
+          meta.append(date, note);
+          const amt = document.createElement('div');
+          amt.className = 'amt ' + (e.amountSatang < 0 ? 'out' : 'in');
+          amt.textContent = formatBaht(e.amountSatang);
+          row.append(meta, amt);
+          card.appendChild(row);
+        }
+        host.appendChild(card);
+      }
+
+      async function openStatement(pocket) {
+        document.getElementById('stTitle').textContent = pocket.name;
+        document.getElementById('stList').innerHTML = '<p class="empty">กำลังโหลด…</p>';
+        show('screen-statement');
+        const load = async () => {
+          try {
+            const { entries } = await api('GET', '/api/pockets/' + encodeURIComponent(pocket.id) + '/entries');
+            clearBanner();
+            renderEntries(entries);
+          } catch (err) {
+            document.getElementById('stList').innerHTML = '';
+            showBanner(err.message, load);
+          }
+        };
+        await load();
+      }
+
+      // ---------- wiring ----------
+      document.getElementById('goEntry').addEventListener('click', openEntry);
+      document.getElementById('goTransfer').addEventListener('click', openTransfer);
       document.getElementById('goCreate').addEventListener('click', openCreate);
       document.getElementById('cpSubmit').addEventListener('click', submitCreate);
+      document.getElementById('enSubmit').addEventListener('click', submitEntry);
+      document.getElementById('tfSubmit').addEventListener('click', submitTransfer);
+      document.getElementById('enDate').addEventListener('input', () => { entryDateTouched = true; });
+      document.getElementById('tfFrom').addEventListener('change', validateTransfer);
+      document.getElementById('tfTo').addEventListener('change', validateTransfer);
+      for (const b of document.querySelectorAll('#enSeg button')) {
+        b.addEventListener('click', () => {
+          entryType = b.dataset.type;
+          for (const x of document.querySelectorAll('#enSeg button')) x.classList.toggle('active', x === b);
+        });
+      }
+      // ปุ่มกลับทุกหน้า → หน้าแรก (v0 มีชั้นเดียว ไม่ต้องมี history stack)
       for (const b of document.querySelectorAll('[data-back]')) b.addEventListener('click', () => show('screen-list'));
 
       // ---------- เริ่มต้น: LIFF init ครั้งเดียว ----------
@@ -285,7 +517,7 @@
           return;
         }
         show('screen-list');
-        loadPockets().catch(() => {}); // error แสดงผ่าน banner แล้ว
+        loadPockets().catch(() => {});
       })();
     </script>
   </body>
