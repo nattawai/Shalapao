@@ -75,7 +75,7 @@
       .seg button.active[data-type="in"] { background: var(--pos); border-color: var(--pos); }
 
       /* รายการเดินบัญชี */
-      .entry { display: flex; justify-content: space-between; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--border); background: var(--card); }
+      .entry { display: flex; justify-content: space-between; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--border); background: var(--card); cursor: pointer; }
       .entry:last-child { border-bottom: 0; }
       .entry .date { font-size: 13px; color: var(--muted); }
       .entry .amt { font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
@@ -472,6 +472,8 @@
       }
 
       // ---------- หน้ารายการเดินบัญชี ----------
+      let statementPocket = null;
+
       function renderEntries(entries) {
         const host = document.getElementById('stList');
         host.innerHTML = '';
@@ -481,6 +483,7 @@
         for (const e of entries) {
           const row = document.createElement('div');
           row.className = 'entry';
+          row.addEventListener('click', () => confirmDelete(e)); // แตะแถว → ถามยืนยันลบ
           const meta = document.createElement('div');
           const date = document.createElement('div');
           date.className = 'date';
@@ -497,21 +500,42 @@
         host.appendChild(card);
       }
 
-      async function openStatement(pocket) {
+      async function loadStatement() {
+        const host = document.getElementById('stList');
+        host.innerHTML = '<p class="empty">กำลังโหลด…</p>';
+        try {
+          const { entries } = await api('GET', '/api/pockets/' + encodeURIComponent(statementPocket.id) + '/entries');
+          clearBanner();
+          renderEntries(entries);
+        } catch (err) {
+          host.innerHTML = '';
+          showBanner(err.message, loadStatement);
+        }
+      }
+
+      function openStatement(pocket) {
+        statementPocket = pocket;
         document.getElementById('stTitle').textContent = pocket.name;
-        document.getElementById('stList').innerHTML = '<p class="empty">กำลังโหลด…</p>';
         show('screen-statement');
-        const load = async () => {
-          try {
-            const { entries } = await api('GET', '/api/pockets/' + encodeURIComponent(pocket.id) + '/entries');
-            clearBanner();
-            renderEntries(entries);
-          } catch (err) {
-            document.getElementById('stList').innerHTML = '';
-            showBanner(err.message, load);
-          }
-        };
-        await load();
+        loadStatement();
+      }
+
+      // ยืนยันต้องเห็นว่ากำลังลบอันไหน — จำนวนเงิน + วันที่ + ชื่อกระเป๋า · ขาโยกบอกว่าลบทั้งคู่
+      function confirmDelete(entry) {
+        let msg = 'ลบรายการนี้?\n\n' + formatBaht(entry.amountSatang) + ' บาท\n' + entry.occurredOn + '\n' + statementPocket.name;
+        if (entry.transferId) msg += '\n\nรายการนี้เป็นการโยกเงิน จะลบทั้งขาเข้าและขาออก';
+        if (!window.confirm(msg)) return;
+        doDelete(entry.id);
+      }
+
+      async function doDelete(id) {
+        try {
+          await api('DELETE', '/api/entries/' + encodeURIComponent(id));
+          await loadPockets().catch(() => {}); // ยอดกระเป๋าเปลี่ยน
+          await loadStatement();
+        } catch (err) {
+          showBanner(err.message, null); // 409 (งวดปิดแล้ว) — message จาก API บอกทางออก
+        }
       }
 
       // ---------- หน้าปุ่มเช็คยอด (กระทบยอด) ----------
