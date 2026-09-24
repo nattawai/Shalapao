@@ -2,7 +2,7 @@ import { env } from 'cloudflare:test';
 import { beforeEach, describe, expect, test } from 'vitest';
 import { ForbiddenError } from '../domain/errors';
 import { newId, nowIso } from '../domain/id';
-import { applyReconcile, getBalanceAsOf } from './pocket.repository';
+import { applyReconcile, getRollupBalanceAsOf } from './pocket.repository';
 
 const db = env.DB;
 
@@ -66,40 +66,30 @@ beforeEach(async () => {
   alicePocket = await seedPocket(alice);
 });
 
-describe('getBalanceAsOf — ยอด ณ สิ้นวัน asOfDate', () => {
-  // 🔴 หัวใจของทั้งฟีเจอร์: เส้นกระทบยอดเป็นอดีตเสมอ ยอดที่เอาไปเทียบกับธนาคาร
-  // จึงต้องเป็นยอด "ณ สิ้นวันนั้น" ไม่รวมรายการของวันหลัง · view pocket_balance
-  // รวมทุกแถวไม่มีเงื่อนไขวัน ใช้ไม่ได้ตรงนี้
-  test('ไม่รวมรายการที่ occurred_on หลัง asOfDate', async () => {
-    await insertEntry(alicePocket, alice, 100000, '2026-03-10');
-    await insertEntry(alicePocket, alice, 50000, '2026-03-15');
-    await insertEntry(alicePocket, alice, 999999, '2026-03-16'); // หลังเส้น — ต้องไม่นับ
-
-    expect(await getBalanceAsOf(db, alice, alicePocket, '2026-03-15')).toBe(150000);
-  });
-
-  // ขอบเขตเป็น inclusive (<=) — รายการที่ลงวันตรงกับ asOfDate นับอยู่ในงวดที่ปิด
+// ใบไม่มีลูก: getRollupBalanceAsOf ให้ค่าเท่ากับยอดตัวเอง ณ วัน จึงครอบพฤติกรรมขอบวัน/ลบ/สิทธิ์
+// ได้ตรงนี้ (เคสรวมลูก + กันยอดลูกที่ไม่ได้เป็นสมาชิกรั่ว อยู่ใน pocket-rollup.repository.test.ts)
+describe('getRollupBalanceAsOf — ใบไม่มีลูก (ยอดตัวเอง ณ วัน)', () => {
+  // ขอบเขต inclusive (<=) — รายการที่ลงวันตรงกับ asOfDate นับอยู่ในงวดที่ปิด
   test('รวมรายการที่ occurred_on เท่ากับ asOfDate พอดี', async () => {
     await insertEntry(alicePocket, alice, 100000, '2026-03-15');
-    expect(await getBalanceAsOf(db, alice, alicePocket, '2026-03-15')).toBe(100000);
+    expect(await getRollupBalanceAsOf(db, alice, alicePocket, '2026-03-15')).toBe(100000);
   });
 
   test('ไม่นับรายการที่ลบแล้ว (deleted_at)', async () => {
     await insertEntry(alicePocket, alice, 100000, '2026-03-10');
     await insertEntry(alicePocket, alice, 70000, '2026-03-10', { deleted: true });
-    expect(await getBalanceAsOf(db, alice, alicePocket, '2026-03-15')).toBe(100000);
+    expect(await getRollupBalanceAsOf(db, alice, alicePocket, '2026-03-15')).toBe(100000);
   });
 
   test('ไม่มีรายการถึง asOfDate → 0', async () => {
     await insertEntry(alicePocket, alice, 100000, '2026-03-20');
-    expect(await getBalanceAsOf(db, alice, alicePocket, '2026-03-15')).toBe(0);
+    expect(await getRollupBalanceAsOf(db, alice, alicePocket, '2026-03-15')).toBe(0);
   });
 
-  // 🔴 กันข้อมูลรั่วข้ามผู้ใช้: กรองผ่าน pocket_member เหมือนทุก query — คนที่ไม่ใช่
-  // สมาชิกได้ 0 เสมอ ไม่มีทางเห็นยอดจริงของกระเป๋าคนอื่น
-  test('ไม่ใช่สมาชิก → 0 ไม่เห็นยอดจริงของกระเป๋าคนอื่น', async () => {
+  // 🔴 กันข้อมูลรั่วข้ามผู้ใช้: ไม่ใช่สมาชิกกระเป๋านี้ → 0 เสมอ ไม่เห็นยอดจริงของคนอื่น
+  test('ไม่ใช่สมาชิก → 0', async () => {
     await insertEntry(alicePocket, alice, 500000, '2026-03-10');
-    expect(await getBalanceAsOf(db, bob, alicePocket, '2026-03-15')).toBe(0);
+    expect(await getRollupBalanceAsOf(db, bob, alicePocket, '2026-03-15')).toBe(0);
   });
 });
 
@@ -114,8 +104,8 @@ describe('applyReconcile — ลงรายการปรับ + ปิดง
     expect(adj?.source).toBe('reconcile');
     expect(adj?.occurredOn).toBe('2026-03-15');
     expect(adj?.createdByUserId).toBe(alice);
-    // ยอด ณ วันปิดงวด หลังลงรายการปรับ = ยอดจริงที่ผู้ใช้กรอก (100000 + diff)
-    expect(await getBalanceAsOf(db, alice, alicePocket, '2026-03-15')).toBe(105000);
+    // ยอด ณ วันปิดงวด หลังลงรายการปรับ = ยอดจริงที่ผู้ใช้กรอก (100000 + diff) · ใบไม่มีลูก rollup == ยอดตัวเอง
+    expect(await getRollupBalanceAsOf(db, alice, alicePocket, '2026-03-15')).toBe(105000);
     expect(await lastReconciledAt(alicePocket)).toBe('2026-03-15');
   });
 
