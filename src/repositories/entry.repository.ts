@@ -108,7 +108,9 @@ async function assertOwnsCategory(db: D1Database, userId: string, categoryId: st
 // เพราะ reconcile ทำงานระดับ rollup (ยอดแม่ = ตัวเอง + ลูก) — ลงรายการย้อนหลังในลูก
 // จะเปลี่ยน rollup ของแม่ ณ วันที่แม่ปิดงวด = ทำให้การกระทบยอดของแม่เป็นโมฆะเงียบ ๆ
 // (pocket_subtree: node_id = กระเป๋านี้ → root_id ไล่ขึ้นไปถึงตัวเอง+แม่ทุกชั้น)
-async function assertNotReconciled(db: D1Database, pocketId: string, occurredOn: string): Promise<void> {
+// เส้นกระทบยอดที่บังคับกับกระเป๋านี้ = เส้นที่ใหม่ที่สุดของตัวเอง + แม่ทุกชั้น
+// ใช้ซ้ำทั้งตอนลงรายการ (assertNotReconciled) และตอนลบรายการ (deleteEntry) — ตรรกะเดียว
+async function effectiveReconciledLine(db: D1Database, pocketId: string): Promise<string | null> {
   const row = await db
     .prepare(
       `SELECT MAX(p.last_reconciled_at) AS line
@@ -118,7 +120,11 @@ async function assertNotReconciled(db: D1Database, pocketId: string, occurredOn:
     )
     .bind(pocketId)
     .first<{ line: string | null }>();
-  const line = row?.line ?? null;
+  return row?.line ?? null;
+}
+
+async function assertNotReconciled(db: D1Database, pocketId: string, occurredOn: string): Promise<void> {
+  const line = await effectiveReconciledLine(db, pocketId);
   if (line !== null && occurredOn <= line) {
     throw new ConflictError(
       'reconciled_period',
