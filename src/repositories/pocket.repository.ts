@@ -17,6 +17,7 @@ export type PocketWithBalance = {
   createdAt: string;
   role: MemberRole;
   balanceSatang: number;
+  rollupSatang: number;
   entryCount: number;
   lastEntryOn: string | null;
 };
@@ -45,6 +46,7 @@ type PocketRow = {
   created_at: string;
   role: MemberRole;
   balance_satang: number;
+  rollup_satang: number;
   entry_count: number;
   last_entry_on: string | null;
 };
@@ -52,12 +54,24 @@ type PocketRow = {
 // จุดเดียวที่ยัด user filter: เริ่มจาก pocket_member ที่ยัง active เสมอ
 // ไม่มีทางเขียน query ที่อ้าง pocket_id ตรง ๆ โดยลืมสิทธิ์ เพราะทุกเมธอดต่อจากนี้
 // ยอดคงเหลืออ่านจาก view pocket_balance ไม่คำนวณเองในโค้ด (ข้อตกลงข้อ 4)
+//
+// rollup_satang = ยอดตัวเอง + ลูกทุกชั้น · ไล่ต้นไม้จาก view pocket_subtree แล้ว
+// 🔴 กรองผ่าน pocket_member ของ "ผู้ใช้คนนี้" ก่อน SUM — ลูกที่เขาไม่ได้เป็นสมาชิกจะไม่ถูกนับ
+// (กันยอดกระเป๋าที่ไม่ได้แชร์รั่วเข้ายอดรวมตอนมีกระเป๋าร่วม v3) · เป็น subquery ตัวเดียว
+// ในคำสั่งเดียว จึงไม่ N+1 แม้ listPockets จะมีหลายใบ · self อยู่ใน subtree เสมอ ค่าจึงไม่ null
 const SELECT_MEMBER_POCKET = `
   SELECT
     p.id, p.parent_id, p.name, p.kind, p.category_id, p.sort_order,
     p.last_reconciled_at, p.archived_at, p.created_at,
     m.role,
-    b.balance_satang, b.entry_count, b.last_entry_on
+    b.balance_satang, b.entry_count, b.last_entry_on,
+    COALESCE((
+      SELECT SUM(sb.balance_satang)
+      FROM pocket_subtree st
+      JOIN pocket_member sm ON sm.pocket_id = st.node_id AND sm.user_id = ? AND sm.left_at IS NULL
+      JOIN pocket_balance sb ON sb.pocket_id = st.node_id
+      WHERE st.root_id = p.id
+    ), b.balance_satang) AS rollup_satang
   FROM pocket_member m
   JOIN pocket p         ON p.id = m.pocket_id
   JOIN pocket_balance b ON b.pocket_id = p.id
@@ -77,6 +91,7 @@ function mapRow(row: PocketRow): PocketWithBalance {
     createdAt: row.created_at,
     role: row.role,
     balanceSatang: row.balance_satang,
+    rollupSatang: row.rollup_satang,
     entryCount: row.entry_count,
     lastEntryOn: row.last_entry_on
   };
@@ -91,7 +106,7 @@ export async function listPockets(
   const archivedFilter = options.includeArchived ? '' : ' AND p.archived_at IS NULL';
   const { results } = await db
     .prepare(`${SELECT_MEMBER_POCKET}${archivedFilter} ORDER BY p.sort_order, p.id`)
-    .bind(userId)
+    .bind(userId, userId) // ตัวแรก = subquery rollup · ตัวสอง = WHERE ของ SELECT หลัก
     .all<PocketRow>();
   return results.map(mapRow);
 }
@@ -103,7 +118,7 @@ export async function getPocket(
 ): Promise<PocketWithBalance | null> {
   const row = await db
     .prepare(`${SELECT_MEMBER_POCKET} AND m.pocket_id = ?`)
-    .bind(userId, pocketId)
+    .bind(userId, userId, pocketId) // subquery rollup · WHERE หลัก · pocket_id
     .first<PocketRow>();
   return row ? mapRow(row) : null;
 }
@@ -127,6 +142,28 @@ export async function getBalanceAsOf(
          AND m.pocket_id = ? AND e.occurred_on <= ? AND e.deleted_at IS NULL`
     )
     .bind(userId, pocketId, asOfDate)
+    .first<{ balance: number }>();
+  return row?.balance ?? 0;
+}
+
+// เหมือน getBalanceAsOf แต่รวมลูกทุกชั้น (สำหรับ reconcile กระเป๋าแม่ใน PR ถัดไป)
+// ไล่ต้นไม้จาก pocket_subtree · 🔴 กรอง pocket_member ของผู้ใช้คนนี้ก่อน SUM เหมือน rollup
+// ปกติ · occurred_on <= asOfDate ตัดรายการวันหลัง (ยอด ณ วันปิดงวด)
+export async function getRollupBalanceAsOf(
+  db: D1Database,
+  userId: string,
+  pocketId: string,
+  asOfDate: string
+): Promise<number> {
+  const row = await db
+    .prepare(
+      `SELECT COALESCE(SUM(e.amount_satang), 0) AS balance
+       FROM pocket_subtree st
+       JOIN pocket_member m ON m.pocket_id = st.node_id AND m.user_id = ? AND m.left_at IS NULL
+       JOIN entry e ON e.pocket_id = st.node_id AND e.occurred_on <= ? AND e.deleted_at IS NULL
+       WHERE st.root_id = ?`
+    )
+    .bind(userId, asOfDate, pocketId)
     .first<{ balance: number }>();
   return row?.balance ?? 0;
 }
