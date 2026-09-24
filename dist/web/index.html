@@ -83,15 +83,17 @@
       .entry .amt.out { color: var(--danger); }
       .list-card { background: var(--card); border-radius: 12px; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,.04); }
 
-      #banner {
-        margin: 16px; padding: 14px 16px; border-radius: 10px;
-        background: #fef3f2; border: 1px solid #fecdca; color: var(--danger);
-      }
+      #banner { margin: 16px; padding: 14px 16px; border-radius: 10px; }
+      #banner.err { background: #fef3f2; border: 1px solid #fecdca; color: var(--danger); }
+      #banner.ok { background: #ecfdf3; border: 1px solid #a6f4c5; color: var(--pos); }
       #banner[hidden] { display: none; }
       #banner button {
         margin-top: 10px; padding: 8px 14px; border: 1px solid var(--danger);
         background: none; color: var(--danger); border-radius: 8px; cursor: pointer; width: auto;
       }
+      /* ยอดที่ระบบคิด + ส่วนต่าง ตอนเช็คยอด */
+      #rcExpectedLine { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 12px; margin-top: 20px; }
+      #rcDiff { font-weight: 600; font-variant-numeric: tabular-nums; min-height: 24px; }
       #gate { text-align: center; padding: 80px 24px; color: var(--muted); }
     </style>
   </head>
@@ -108,6 +110,7 @@
         <main>
           <div id="pockets"><p class="empty">กำลังโหลด…</p></div>
           <button class="btn" id="goEntry">＋ เพิ่มรายการ</button>
+          <button class="btn-ghost" id="goReconcile">เช็คยอดกับธนาคาร</button>
           <button class="btn-ghost" id="goTransfer">โยกเงินระหว่างกระเป๋า</button>
           <button class="btn-ghost" id="goCreate">สร้างกระเป๋าใหม่</button>
         </main>
@@ -179,6 +182,30 @@
         </header>
         <main><div id="stList"><p class="empty">กำลังโหลด…</p></div></main>
       </section>
+
+      <!-- หน้าปุ่มเช็คยอด (ไหลสามขั้น: คำนวณ → กรอกยอดจริง+เห็นส่วนต่าง → ยืนยันปิดงวด) -->
+      <section id="screen-reconcile" class="screen" hidden>
+        <header>
+          <button class="back" data-back aria-label="กลับ">‹</button>
+          <h1>เช็คยอด</h1>
+        </header>
+        <main>
+          <label for="rcPocket">กระเป๋า</label>
+          <select id="rcPocket"></select>
+          <label for="rcDate">วันปิดงวด (ต้องเป็นอดีต)</label>
+          <input id="rcDate" type="date" />
+          <button class="btn" id="rcPreview">คำนวณยอด</button>
+
+          <div id="rcResult" hidden>
+            <p id="rcExpectedLine"></p>
+            <label for="rcActual">ยอดจริงจากแอปธนาคาร (บาท)</label>
+            <input id="rcActual" type="text" inputmode="decimal" placeholder="0.00" />
+            <p id="rcDiff"></p>
+            <button class="btn" id="rcConfirm" disabled>ยืนยันปิดงวด</button>
+          </div>
+          <div class="form-error" id="rcError"></div>
+        </main>
+      </section>
     </div>
 
     <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
@@ -239,12 +266,14 @@
       }
 
       // ---------- แถบ error กลางหน้า ----------
-      function showBanner(message, retryFn) {
+      function showBanner(message, retryFn, kind) {
         document.getElementById('bannerText').textContent = message;
         const btn = document.getElementById('bannerRetry');
         btn.hidden = !retryFn;
         btn.onclick = retryFn || null;
-        document.getElementById('banner').hidden = false;
+        const banner = document.getElementById('banner');
+        banner.className = kind === 'success' ? 'ok' : 'err';
+        banner.hidden = false;
       }
       function clearBanner() { document.getElementById('banner').hidden = true; }
 
@@ -485,8 +514,107 @@
         await load();
       }
 
+      // ---------- หน้าปุ่มเช็คยอด (กระทบยอด) ----------
+      let rcExpectedSatang = null;
+
+      // วันปิดงวดต้องเป็นอดีต — เมื่อวาน (เขตเวลาไทย) เป็นค่าเริ่มต้นและเพดานของ date picker
+      function yesterdayBangkok() {
+        const d = new Date(todayBangkok() + 'T00:00:00Z');
+        d.setUTCDate(d.getUTCDate() - 1);
+        return d.toISOString().slice(0, 10);
+      }
+
+      function resetReconcileResult() {
+        rcExpectedSatang = null;
+        document.getElementById('rcResult').hidden = true;
+        document.getElementById('rcActual').value = '';
+        document.getElementById('rcDiff').textContent = '';
+        document.getElementById('rcConfirm').disabled = true;
+      }
+
+      function openReconcile() {
+        if (pocketsCache.length === 0) { showBanner('ยังไม่มีกระเป๋า — สร้างกระเป๋าก่อนจึงจะเช็คยอดได้'); return; }
+        fillPocketOptions(document.getElementById('rcPocket'), null);
+        const y = yesterdayBangkok();
+        const dateEl = document.getElementById('rcDate');
+        dateEl.value = y;
+        dateEl.max = y; // ล็อกไม่ให้เลือกวันนี้/อนาคต (backend กันอยู่แล้ว แต่อย่าให้เลือกแล้วโดนปฏิเสธ)
+        resetReconcileResult();
+        document.getElementById('rcError').textContent = '';
+        show('screen-reconcile');
+      }
+
+      // ขั้น 1: ให้ระบบคำนวณยอด ณ วันปิดงวด (ยอด rollup รวมลูก) ก่อนผู้ใช้กรอกยอดจริง
+      async function runPreview() {
+        const errEl = document.getElementById('rcError');
+        errEl.textContent = '';
+        const pocketId = document.getElementById('rcPocket').value;
+        const asOfDate = document.getElementById('rcDate').value;
+        const btn = document.getElementById('rcPreview');
+        btn.disabled = true;
+        try {
+          const pv = await api('GET', '/api/pockets/' + encodeURIComponent(pocketId) + '/reconcile/preview?asOfDate=' + encodeURIComponent(asOfDate));
+          rcExpectedSatang = pv.expectedSatang;
+          document.getElementById('rcExpectedLine').innerHTML = 'ระบบคำนวณได้ <b>' + formatBaht(pv.expectedSatang) + '</b> บาท ณ ' + pv.asOfDate;
+          document.getElementById('rcActual').value = '';
+          document.getElementById('rcDiff').textContent = '';
+          document.getElementById('rcConfirm').disabled = true;
+          document.getElementById('rcResult').hidden = false;
+        } catch (err) {
+          resetReconcileResult();
+          errEl.textContent = err.message; // รวม 409 (ย้อนก่อนงวดที่ปิดแล้ว) — message บอกทางออก
+        } finally {
+          btn.disabled = false;
+        }
+      }
+
+      // ขั้น 2: กรอกยอดจริง เห็นส่วนต่างสด · ปุ่มยืนยันเปิดใช้ต่อเมื่อกรอกยอดถูกต้อง (เห็น diff ก่อนเสมอ)
+      function onActualInput() {
+        const diffEl = document.getElementById('rcDiff');
+        const confirm = document.getElementById('rcConfirm');
+        let actual;
+        try {
+          actual = bahtToSatang(document.getElementById('rcActual').value);
+        } catch (_) {
+          diffEl.textContent = '';
+          confirm.disabled = true;
+          return;
+        }
+        const diff = actual - rcExpectedSatang;
+        diffEl.textContent = diff === 0 ? 'ตรงกันพอดี' : 'ต่าง ' + (diff > 0 ? '+' : '') + formatBaht(diff) + ' บาท';
+        confirm.disabled = false; // diff = 0 ก็ยืนยันได้ (เพื่อปิดงวด)
+      }
+
+      // ขั้น 3: ยืนยันปิดงวด → ระบบออกรายการปรับส่วนต่างให้
+      async function runConfirm() {
+        const errEl = document.getElementById('rcError');
+        errEl.textContent = '';
+        let actual;
+        try {
+          actual = bahtToSatang(document.getElementById('rcActual').value);
+        } catch (err) {
+          errEl.textContent = err.message;
+          return;
+        }
+        const pocketId = document.getElementById('rcPocket').value;
+        const asOfDate = document.getElementById('rcDate').value;
+        const btn = document.getElementById('rcConfirm');
+        btn.disabled = true;
+        try {
+          const r = await api('POST', '/api/pockets/' + encodeURIComponent(pocketId) + '/reconcile', { actualBalanceSatang: actual, asOfDate });
+          const adj = r.adjustmentEntry;
+          await loadPockets().catch(() => {});
+          showBanner(adj ? 'ปิดงวดแล้ว · ออกรายการปรับ ' + formatBaht(adj.amountSatang) + ' บาท' : 'ปิดงวดแล้ว · ยอดตรงพอดี ไม่มีรายการปรับ', null, 'success');
+          show('screen-list');
+        } catch (err) {
+          errEl.textContent = err.message;
+          btn.disabled = false;
+        }
+      }
+
       // ---------- wiring ----------
       document.getElementById('goEntry').addEventListener('click', openEntry);
+      document.getElementById('goReconcile').addEventListener('click', openReconcile);
       document.getElementById('goTransfer').addEventListener('click', openTransfer);
       document.getElementById('goCreate').addEventListener('click', openCreate);
       document.getElementById('cpSubmit').addEventListener('click', submitCreate);
@@ -495,6 +623,12 @@
       document.getElementById('enDate').addEventListener('input', () => { entryDateTouched = true; });
       document.getElementById('tfFrom').addEventListener('change', validateTransfer);
       document.getElementById('tfTo').addEventListener('change', validateTransfer);
+      document.getElementById('rcPreview').addEventListener('click', runPreview);
+      document.getElementById('rcActual').addEventListener('input', onActualInput);
+      document.getElementById('rcConfirm').addEventListener('click', runConfirm);
+      // เปลี่ยนกระเป๋า/วัน → preview เดิมใช้ไม่ได้ ต้องคำนวณใหม่ก่อนยืนยัน
+      document.getElementById('rcPocket').addEventListener('change', resetReconcileResult);
+      document.getElementById('rcDate').addEventListener('change', resetReconcileResult);
       for (const b of document.querySelectorAll('#enSeg button')) {
         b.addEventListener('click', () => {
           entryType = b.dataset.type;
