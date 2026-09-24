@@ -1,13 +1,17 @@
 import { ConflictError, ForbiddenError, ValidationError } from '../domain/errors';
 import { today } from '../domain/id';
 import type { Entry } from '../repositories/entry.repository';
-import { applyReconcile, getBalanceAsOf, getPocket } from '../repositories/pocket.repository';
+import { applyReconcile, getRollupBalanceAsOf, getPocket } from '../repositories/pocket.repository';
 
 // ปุ่มเช็คยอด — หัวใจของแอป: ทำให้ตัวเลขกลับมาตรงกับธนาคารได้เสมอ
 //
 // ต่างจาก pocket/entry.service ที่เป็น forwarder — ชั้นนี้ถือ business rule จริงที่ SQL
 // บังคับไม่ได้: กฎวันปิดงวด (SQLite date('now') เป็น UTC เชื่อไม่ได้ · ต้องใช้ today()
 // เขตเวลาไทย) · การคิด diff · ลำดับปิดงวด · สิทธิ์ในกระเป๋าก่อนแตะ INSERT ดิบ
+//
+// เทียบยอด "rollup" (ตัวเอง + ลูกทุกชั้น) กับธนาคารเสมอ ไม่แยกเคส — ใบที่ไม่มีลูก
+// rollup == ยอดตัวเอง กฎเดียวใช้ได้ทุกกรณี · รายการปรับลงที่กระเป๋าที่ถูกกระทบยอดเอง
+// (ยอดตัวเอง = เงินที่ยังไม่ได้แบ่งเข้าซองลูก) ผ่าน applyReconcile
 
 export type ReconcileInput = {
   pocketId: string;
@@ -60,13 +64,13 @@ export async function previewReconcile(
   asOfDate: string
 ): Promise<ReconcilePreview> {
   await assertReconcilable(db, userId, pocketId, asOfDate);
-  const expectedSatang = await getBalanceAsOf(db, userId, pocketId, asOfDate);
+  const expectedSatang = await getRollupBalanceAsOf(db, userId, pocketId, asOfDate);
   return { asOfDate, expectedSatang, actualSatang: null, diffSatang: null };
 }
 
 export async function reconcile(db: D1Database, userId: string, input: ReconcileInput): Promise<ReconcileResult> {
   await assertReconcilable(db, userId, input.pocketId, input.asOfDate);
-  const expectedSatang = await getBalanceAsOf(db, userId, input.pocketId, input.asOfDate);
+  const expectedSatang = await getRollupBalanceAsOf(db, userId, input.pocketId, input.asOfDate);
   const diffSatang = input.actualBalanceSatang - expectedSatang;
   // applyReconcile ทำ INSERT ปรับ (ถ้า diff≠0) + ปิดงวด ใน batch เดียว (atomic)
   const adjustmentEntry = await applyReconcile(db, userId, {

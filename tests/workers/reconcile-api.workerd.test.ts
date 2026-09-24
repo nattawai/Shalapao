@@ -53,6 +53,11 @@ async function createPocket(user: string, name: string): Promise<string> {
   return ((await res.json()) as { pocket: { id: string } }).pocket.id;
 }
 
+async function createChildPocket(user: string, name: string, parentId: string): Promise<string> {
+  const res = await app.request('/api/pockets', as(user, { method: 'POST', body: JSON.stringify({ name, parentId }) }), runEnv);
+  return ((await res.json()) as { pocket: { id: string } }).pocket.id;
+}
+
 async function addEntry(user: string, pocketId: string, amountSatang: number, occurredOn: string): Promise<void> {
   await app.request('/api/entries', as(user, { method: 'POST', body: JSON.stringify({ pocketId, amountSatang, occurredOn }) }), runEnv);
 }
@@ -168,6 +173,44 @@ describe('GET /api/pockets/:id/reconcile/preview — อ่านอย่าง
   test('403 เมื่อ preview กระเป๋าของผู้ใช้อื่น', async () => {
     const bobPocket = await createPocket(bob, 'ของบ๊อบ');
     expect((await preview(alice, bobPocket, '2026-03-15')).status).toBe(403);
+  });
+});
+
+// reconcile เทียบ rollup (ยอดตัวเอง + ลูกทุกชั้น) เสมอ — กระเป๋าแม่เช็คยอดรวมกับธนาคาร
+// รายการปรับส่วนต่างลงที่แม่เอง (ยอดตัวเองของแม่ = เงินที่ยังไม่ได้แบ่งเข้าซองลูก)
+describe('reconcile ระดับ rollup', () => {
+  test('แม่ไม่มีเงินเอง ลูกถือ 3,000 → preview/expected = 3,000 · ปรับส่วนต่างลงที่แม่', async () => {
+    const parent = await createPocket(alice, 'Make');
+    const child = await createChildPocket(alice, 'Mobile', parent);
+    await addEntry(alice, child, 300000, '2026-03-10');
+
+    const pv = (await (await preview(alice, parent, '2026-03-15')).json()) as { expectedSatang: number };
+    expect(pv.expectedSatang).toBe(300000); // rollup ของแม่ = ยอดลูก
+
+    // ธนาคารมี 3,200 → diff +200 ลงเป็นรายการปรับที่ "แม่"
+    const res = await post(alice, parent, { actualBalanceSatang: 320000, asOfDate: '2026-03-15' });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { expectedSatang: number; diffSatang: number; adjustmentEntry: { amountSatang: number; occurredOn: string } | null };
+    expect(body.expectedSatang).toBe(300000);
+    expect(body.diffSatang).toBe(20000);
+    expect(body.adjustmentEntry?.amountSatang).toBe(20000);
+
+    const list = (await (await app.request(`/api/pockets/${parent}/entries`, as(alice), runEnv)).json()) as { entries: { amountSatang: number; source: string }[] };
+    expect(list.entries.some((e) => e.source === 'reconcile' && e.amountSatang === 20000)).toBe(true);
+  });
+
+  // 🔴 หลังกระทบยอดแม่ ลงรายการย้อนหลังในลูก → 409 (ไม่งั้น rollup ของแม่เพี้ยนเงียบ ๆ)
+  test('หลังกระทบยอดแม่: ลงรายการย้อนหลังในลูก → 409', async () => {
+    const parent = await createPocket(alice, 'Make');
+    const child = await createChildPocket(alice, 'Mobile', parent);
+    await post(alice, parent, { actualBalanceSatang: 0, asOfDate: '2026-03-15' });
+    const res = await app.request(
+      '/api/entries',
+      as(alice, { method: 'POST', body: JSON.stringify({ pocketId: child, amountSatang: 100, occurredOn: '2026-03-15' }) }),
+      runEnv
+    );
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toBe('reconciled_period');
   });
 });
 
