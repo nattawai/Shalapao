@@ -1,6 +1,6 @@
 import { describe, expect, test, vi } from 'vitest';
 import * as entryRepo from '../repositories/entry.repository';
-import { createEntry, createTransfer, listEntries } from './entry.service';
+import { createEntry, createTransfer, deleteEntry, listEntries } from './entry.service';
 
 // entry.service เป็น forwarder — invariant ทั้งหมด (append-only · งวดกระทบยอด · amount>0
 // · from≠to · สิทธิ์) อยู่ที่ repository และโยนเป็น typed error แล้ว · route แปลงเป็น HTTP
@@ -8,7 +8,8 @@ import { createEntry, createTransfer, listEntries } from './entry.service';
 vi.mock('../repositories/entry.repository', () => ({
   createEntry: vi.fn(),
   createTransfer: vi.fn(),
-  listEntries: vi.fn()
+  listEntries: vi.fn(),
+  deleteEntry: vi.fn()
 }));
 
 const db = {} as D1Database;
@@ -37,6 +38,12 @@ describe('entry.service (forwarder)', () => {
     const out = await listEntries(db, 'u1', 'p1');
     expect(entryRepo.listEntries).toHaveBeenCalledWith(db, 'u1', 'p1');
     expect(out).toEqual([{ id: 'e1' }]);
+  });
+
+  test('deleteEntry ส่ง entryId ต่อ', async () => {
+    vi.mocked(entryRepo.deleteEntry).mockResolvedValue(undefined);
+    await deleteEntry(db, 'u1', 'e1');
+    expect(entryRepo.deleteEntry).toHaveBeenCalledWith(db, 'u1', 'e1');
   });
 
   test('ไม่กลืน error ที่ repository โยน — ปล่อยผ่านให้ route แปลง', async () => {

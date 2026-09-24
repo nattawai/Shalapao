@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { ValidationError } from '../domain/errors';
 import type { AuthEnv } from '../middleware/auth';
-import { createEntry, createTransfer } from '../services/entry.service';
+import { createEntry, createTransfer, deleteEntry } from '../services/entry.service';
 import { createEntrySchema, createTransferSchema } from './schemas/entry.schema';
 
 // occurredOn ที่ไม่ส่งมา ปล่อย undefined ลงไปถึง repository — repository ใส่ today()
@@ -22,6 +22,13 @@ entryRoutes.post('/', async (c) => {
     ...(parsed.note !== undefined ? { note: parsed.note } : {})
   });
   return c.json({ entry }, 201);
+});
+
+// ลบ = soft delete · ตอบ 204 ไม่มี body · หน้าจอโหลดรายการ+ยอดใหม่เอง
+// การกรอง deleted_at IS NULL ตอนอ่านทำให้ลบซ้ำ → 404 · กระเป๋าคนอื่น → 403 · งวดปิด → 409
+entryRoutes.delete('/:id', async (c) => {
+  await deleteEntry(c.env.DB, c.get('userId'), c.req.param('id'));
+  return c.body(null, 204);
 });
 
 export const transferRoutes = new Hono<AuthEnv>();

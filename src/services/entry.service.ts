@@ -1,6 +1,7 @@
 import {
   createEntry as repoCreateEntry,
   createTransfer as repoCreateTransfer,
+  deleteEntry as repoDeleteEntry,
   listEntries as repoListEntries,
   type CreateEntryInput,
   type CreateTransferInput,
@@ -26,4 +27,8 @@ export function createTransfer(
 
 export function listEntries(db: D1Database, userId: string, pocketId: string): Promise<Entry[]> {
   return repoListEntries(db, userId, pocketId);
+}
+
+export function deleteEntry(db: D1Database, userId: string, entryId: string): Promise<void> {
+  return repoDeleteEntry(db, userId, entryId);
 }

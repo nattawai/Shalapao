@@ -58,6 +58,14 @@ async function post(user: string, path: string, body: unknown): Promise<Response
   return app.request(path, as(user, { method: 'POST', body: JSON.stringify(body) }), runEnv);
 }
 
+async function del(user: string, id: string): Promise<Response> {
+  return app.request('/api/entries/' + id, as(user, { method: 'DELETE' }), runEnv);
+}
+
+async function entryId(res: Response): Promise<string> {
+  return ((await res.json()) as { entry: { id: string } }).entry.id;
+}
+
 describe('POST /api/entries', () => {
   test('happy: เงินเข้า (+) และเงินออก (−) — 201 · ยอดเป็นสตางค์', async () => {
     const p = await createPocket(alice, 'เงินเก็บ');
@@ -112,6 +120,39 @@ describe('POST /api/entries', () => {
     const p = await createPocket(alice, 'p');
     await db.prepare('UPDATE pocket SET last_reconciled_at = ? WHERE id = ?').bind('2026-03-15', p).run();
     const res = await post(alice, '/api/entries', { pocketId: p, amountSatang: 100, occurredOn: '2026-03-15' });
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toBe('reconciled_period');
+  });
+});
+
+describe('DELETE /api/entries/:id', () => {
+  test('204 ลบรายการงวดที่ยังเปิด · แล้วไม่โผล่ในรายการอีก', async () => {
+    const p = await createPocket(alice, 'p');
+    const id = await entryId(await post(alice, '/api/entries', { pocketId: p, amountSatang: 50000, occurredOn: '2026-03-10' }));
+    const res = await del(alice, id);
+    expect(res.status).toBe(204);
+    const list = await app.request(`/api/pockets/${p}/entries`, as(alice), runEnv);
+    expect(((await list.json()) as { entries: unknown[] }).entries).toEqual([]);
+  });
+
+  test('404 ลบรายการที่ลบไปแล้ว', async () => {
+    const p = await createPocket(alice, 'p');
+    const id = await entryId(await post(alice, '/api/entries', { pocketId: p, amountSatang: 100 }));
+    await del(alice, id);
+    expect((await del(alice, id)).status).toBe(404);
+  });
+
+  test('403 ลบรายการของผู้ใช้อื่น', async () => {
+    const bobPocket = await createPocket(bob, 'ของบ๊อบ');
+    const id = await entryId(await post(bob, '/api/entries', { pocketId: bobPocket, amountSatang: 100 }));
+    expect((await del(alice, id)).status).toBe(403);
+  });
+
+  test('409 ลบรายการในงวดที่กระทบยอดแล้ว', async () => {
+    const p = await createPocket(alice, 'p');
+    const id = await entryId(await post(alice, '/api/entries', { pocketId: p, amountSatang: 100, occurredOn: '2026-03-10' }));
+    await db.prepare('UPDATE pocket SET last_reconciled_at = ? WHERE id = ?').bind('2026-03-15', p).run();
+    const res = await del(alice, id);
     expect(res.status).toBe(409);
     expect(((await res.json()) as { error: string }).error).toBe('reconciled_period');
   });
