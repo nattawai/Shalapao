@@ -1,4 +1,4 @@
-import { ConflictError, ForbiddenError, ValidationError } from '../domain/errors';
+import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../domain/errors';
 import { newId, nowIso, today } from '../domain/id';
 
 export type EntrySource = 'manual' | 'rule' | 'reconcile' | 'slip' | 'import';
@@ -108,7 +108,9 @@ async function assertOwnsCategory(db: D1Database, userId: string, categoryId: st
 // เพราะ reconcile ทำงานระดับ rollup (ยอดแม่ = ตัวเอง + ลูก) — ลงรายการย้อนหลังในลูก
 // จะเปลี่ยน rollup ของแม่ ณ วันที่แม่ปิดงวด = ทำให้การกระทบยอดของแม่เป็นโมฆะเงียบ ๆ
 // (pocket_subtree: node_id = กระเป๋านี้ → root_id ไล่ขึ้นไปถึงตัวเอง+แม่ทุกชั้น)
-async function assertNotReconciled(db: D1Database, pocketId: string, occurredOn: string): Promise<void> {
+// เส้นกระทบยอดที่บังคับกับกระเป๋านี้ = เส้นที่ใหม่ที่สุดของตัวเอง + แม่ทุกชั้น
+// ใช้ซ้ำทั้งตอนลงรายการ (assertNotReconciled) และตอนลบรายการ (deleteEntry) — ตรรกะเดียว
+async function effectiveReconciledLine(db: D1Database, pocketId: string): Promise<string | null> {
   const row = await db
     .prepare(
       `SELECT MAX(p.last_reconciled_at) AS line
@@ -118,11 +120,27 @@ async function assertNotReconciled(db: D1Database, pocketId: string, occurredOn:
     )
     .bind(pocketId)
     .first<{ line: string | null }>();
-  const line = row?.line ?? null;
+  return row?.line ?? null;
+}
+
+async function assertNotReconciled(db: D1Database, pocketId: string, occurredOn: string): Promise<void> {
+  const line = await effectiveReconciledLine(db, pocketId);
   if (line !== null && occurredOn <= line) {
     throw new ConflictError(
       'reconciled_period',
       `ลงรายการในงวดที่กระทบยอดแล้วไม่ได้ (ถึง ${line}) — ออกรายการปรับของวันนี้แทน`
+    );
+  }
+}
+
+// ลบได้เฉพาะงวดที่ยังไม่ปิด · งวดปิดแล้ว = การกระทบยอดปรับยอดรวมไปแล้ว ถ้ามาลบต้นทางอีก
+// = หักลบซ้ำสองรอบ (บั๊กนับซ้ำที่ last_reconciled_at ออกแบบมากันตั้งแต่แรก)
+async function assertDeletableInOpenPeriod(db: D1Database, pocketId: string, occurredOn: string): Promise<void> {
+  const line = await effectiveReconciledLine(db, pocketId);
+  if (line !== null && occurredOn <= line) {
+    throw new ConflictError(
+      'reconciled_period',
+      'รายการนี้อยู่ในงวดที่กระทบยอดแล้ว แก้ไม่ได้ — การกระทบยอดปรับยอดรวมให้ถูกไปแล้ว'
     );
   }
 }
@@ -222,4 +240,34 @@ export async function createTransfer(
   const inflow = await getEntry(db, userId, inId);
   if (!outflow || !inflow) throw new Error('โยกเงินแล้วอ่านกลับไม่เจอ — ไม่ควรเกิด');
   return { outflow, inflow };
+}
+
+// v0 ลบ = soft delete (ประทับ deleted_at เป็นเวลาที่กด ไม่ใช่วันที่ของรายการ) ไม่มี reversal
+// อ่านแถวดิบก่อนเพื่อแยก 404 (ไม่มี/ถูกลบแล้ว) จาก 403 (ไม่ใช่สมาชิก) — getEntry รวมสองเงื่อนไข
+// เข้าด้วยกันจึงแยกไม่ได้ · ขาโยกเงินต้องลบทั้งคู่ใน batch เดียว และเช็คงวดปิดของทั้งสองกระเป๋าก่อน
+export async function deleteEntry(db: D1Database, userId: string, entryId: string): Promise<void> {
+  const row = await db
+    .prepare('SELECT pocket_id, transfer_id, occurred_on, deleted_at FROM entry WHERE id = ?')
+    .bind(entryId)
+    .first<{ pocket_id: string; transfer_id: string | null; occurred_on: string; deleted_at: string | null }>();
+  if (!row) throw new NotFoundError('entry_not_found', 'ไม่พบรายการนี้');
+  await assertMember(db, userId, row.pocket_id); // ไม่ใช่สมาชิก → ForbiddenError (แถวยังอยู่)
+  if (row.deleted_at !== null) throw new NotFoundError('entry_not_found', 'ไม่พบรายการนี้ (ถูกลบไปแล้ว)');
+
+  const now = nowIso();
+  if (row.transfer_id === null) {
+    await assertDeletableInOpenPeriod(db, row.pocket_id, row.occurred_on);
+    await db.prepare('UPDATE entry SET deleted_at = ? WHERE id = ?').bind(now, entryId).run();
+    return;
+  }
+
+  // ขาโยกเงิน: ลบทั้งสองขา · เช็คงวดปิดของทุกขาก่อน ถ้าฝั่งใดปิดแล้ว → ปฏิเสธ ไม่ลบทั้งคู่
+  const legs = await db
+    .prepare('SELECT id, pocket_id, occurred_on FROM entry WHERE transfer_id = ? AND deleted_at IS NULL')
+    .bind(row.transfer_id)
+    .all<{ id: string; pocket_id: string; occurred_on: string }>();
+  for (const leg of legs.results) {
+    await assertDeletableInOpenPeriod(db, leg.pocket_id, leg.occurred_on);
+  }
+  await db.batch(legs.results.map((leg) => db.prepare('UPDATE entry SET deleted_at = ? WHERE id = ?').bind(now, leg.id)));
 }

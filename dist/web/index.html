@@ -75,7 +75,7 @@
       .seg button.active[data-type="in"] { background: var(--pos); border-color: var(--pos); }
 
       /* รายการเดินบัญชี */
-      .entry { display: flex; justify-content: space-between; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--border); background: var(--card); }
+      .entry { display: flex; justify-content: space-between; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--border); background: var(--card); cursor: pointer; }
       .entry:last-child { border-bottom: 0; }
       .entry .date { font-size: 13px; color: var(--muted); }
       .entry .amt { font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
@@ -94,6 +94,8 @@
       /* ยอดที่ระบบคิด + ส่วนต่าง ตอนเช็คยอด */
       #rcExpectedLine { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 12px; margin-top: 20px; }
       #rcDiff { font-weight: 600; font-variant-numeric: tabular-nums; min-height: 24px; }
+      .hint { color: var(--muted); font-size: 13px; margin-top: 8px; }
+      .hint[hidden] { display: none; }
       #gate { text-align: center; padding: 80px 24px; color: var(--muted); }
     </style>
   </head>
@@ -202,6 +204,7 @@
             <input id="rcActual" type="text" inputmode="decimal" placeholder="0.00" />
             <p id="rcDiff"></p>
             <button class="btn" id="rcConfirm" disabled>ยืนยันปิดงวด</button>
+            <p id="rcConfirmHint" class="hint">กรอกยอดจริงจากแอปธนาคารก่อน</p>
           </div>
           <div class="form-error" id="rcError"></div>
         </main>
@@ -472,6 +475,8 @@
       }
 
       // ---------- หน้ารายการเดินบัญชี ----------
+      let statementPocket = null;
+
       function renderEntries(entries) {
         const host = document.getElementById('stList');
         host.innerHTML = '';
@@ -481,6 +486,7 @@
         for (const e of entries) {
           const row = document.createElement('div');
           row.className = 'entry';
+          row.addEventListener('click', () => confirmDelete(e)); // แตะแถว → ถามยืนยันลบ
           const meta = document.createElement('div');
           const date = document.createElement('div');
           date.className = 'date';
@@ -497,21 +503,42 @@
         host.appendChild(card);
       }
 
-      async function openStatement(pocket) {
+      async function loadStatement() {
+        const host = document.getElementById('stList');
+        host.innerHTML = '<p class="empty">กำลังโหลด…</p>';
+        try {
+          const { entries } = await api('GET', '/api/pockets/' + encodeURIComponent(statementPocket.id) + '/entries');
+          clearBanner();
+          renderEntries(entries);
+        } catch (err) {
+          host.innerHTML = '';
+          showBanner(err.message, loadStatement);
+        }
+      }
+
+      function openStatement(pocket) {
+        statementPocket = pocket;
         document.getElementById('stTitle').textContent = pocket.name;
-        document.getElementById('stList').innerHTML = '<p class="empty">กำลังโหลด…</p>';
         show('screen-statement');
-        const load = async () => {
-          try {
-            const { entries } = await api('GET', '/api/pockets/' + encodeURIComponent(pocket.id) + '/entries');
-            clearBanner();
-            renderEntries(entries);
-          } catch (err) {
-            document.getElementById('stList').innerHTML = '';
-            showBanner(err.message, load);
-          }
-        };
-        await load();
+        loadStatement();
+      }
+
+      // ยืนยันต้องเห็นว่ากำลังลบอันไหน — จำนวนเงิน + วันที่ + ชื่อกระเป๋า · ขาโยกบอกว่าลบทั้งคู่
+      function confirmDelete(entry) {
+        let msg = 'ลบรายการนี้?\n\n' + formatBaht(entry.amountSatang) + ' บาท\n' + entry.occurredOn + '\n' + statementPocket.name;
+        if (entry.transferId) msg += '\n\nรายการนี้เป็นการโยกเงิน จะลบทั้งขาเข้าและขาออก';
+        if (!window.confirm(msg)) return;
+        doDelete(entry.id);
+      }
+
+      async function doDelete(id) {
+        try {
+          await api('DELETE', '/api/entries/' + encodeURIComponent(id));
+          await loadPockets().catch(() => {}); // ยอดกระเป๋าเปลี่ยน
+          await loadStatement();
+        } catch (err) {
+          showBanner(err.message, null); // 409 (งวดปิดแล้ว) — message จาก API บอกทางออก
+        }
       }
 
       // ---------- หน้าปุ่มเช็คยอด (กระทบยอด) ----------
@@ -559,7 +586,9 @@
           document.getElementById('rcActual').value = '';
           document.getElementById('rcDiff').textContent = '';
           document.getElementById('rcConfirm').disabled = true;
+          document.getElementById('rcConfirmHint').hidden = false;
           document.getElementById('rcResult').hidden = false;
+          document.getElementById('rcActual').focus(); // พาไปกรอกยอดจริงต่อทันที (ไม่เติมให้เอง)
         } catch (err) {
           resetReconcileResult();
           errEl.textContent = err.message; // รวม 409 (ย้อนก่อนงวดที่ปิดแล้ว) — message บอกทางออก
@@ -572,17 +601,20 @@
       function onActualInput() {
         const diffEl = document.getElementById('rcDiff');
         const confirm = document.getElementById('rcConfirm');
+        const hint = document.getElementById('rcConfirmHint');
         let actual;
         try {
           actual = bahtToSatang(document.getElementById('rcActual').value);
         } catch (_) {
           diffEl.textContent = '';
           confirm.disabled = true;
+          hint.hidden = false; // ปุ่มยัง disabled → บอกเหตุผล
           return;
         }
         const diff = actual - rcExpectedSatang;
         diffEl.textContent = diff === 0 ? 'ตรงกันพอดี' : 'ต่าง ' + (diff > 0 ? '+' : '') + formatBaht(diff) + ' บาท';
         confirm.disabled = false; // diff = 0 ก็ยืนยันได้ (เพื่อปิดงวด)
+        hint.hidden = true;
       }
 
       // ขั้น 3: ยืนยันปิดงวด → ระบบออกรายการปรับส่วนต่างให้

@@ -1,8 +1,8 @@
 import { env } from 'cloudflare:test';
 import { beforeEach, describe, expect, test } from 'vitest';
-import { ConflictError, ForbiddenError, ValidationError } from '../domain/errors';
+import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../domain/errors';
 import { newId, nowIso, today } from '../domain/id';
-import { createEntry, createTransfer, getEntry, listEntries } from './entry.repository';
+import { createEntry, createTransfer, deleteEntry, getEntry, listEntries } from './entry.repository';
 
 const db = env.DB;
 
@@ -39,6 +39,11 @@ async function seedCategory(userId: string): Promise<string> {
 async function countEntries(): Promise<number> {
   const row = await db.prepare('SELECT COUNT(*) AS n FROM entry').first<{ n: number }>();
   return row?.n ?? -1;
+}
+
+async function balanceOf(pocketId: string): Promise<number> {
+  const row = await db.prepare('SELECT COALESCE(balance_satang, 0) AS b FROM pocket_balance WHERE pocket_id = ?').bind(pocketId).first<{ b: number }>();
+  return row?.b ?? 0;
 }
 
 async function reconcilePocket(pocketId: string, date: string): Promise<void> {
@@ -205,6 +210,73 @@ describe('createTransfer — กันโยกเข้างวดที่ก
     });
     expect(outflow.amountSatang).toBe(-100);
     expect(inflow.amountSatang).toBe(100);
+  });
+});
+
+// v0 ลบ = soft delete (deleted_at) เท่านั้น ไม่ทำ reversal · ลบได้เฉพาะงวดที่ยังไม่ปิด
+describe('deleteEntry', () => {
+  test('ลบรายการในงวดที่ยังเปิด → สำเร็จ · ยอดลดลงตามจริง · ไม่โผล่ในลิสต์', async () => {
+    const income = await createEntry(db, alice, { pocketId: alicePocket, amountSatang: 50000, occurredOn: '2026-03-10' });
+    const wrong = await createEntry(db, alice, { pocketId: alicePocket, amountSatang: -99900, occurredOn: '2026-03-11' });
+    expect(await balanceOf(alicePocket)).toBe(50000 - 99900);
+
+    await deleteEntry(db, alice, wrong.id);
+
+    expect(await balanceOf(alicePocket)).toBe(50000);
+    const list = await listEntries(db, alice, alicePocket);
+    expect(list.map((e) => e.id)).toEqual([income.id]);
+    expect(await getEntry(db, alice, wrong.id)).toBeNull();
+  });
+
+  test('ลบรายการในงวดที่ปิดแล้ว → 409', async () => {
+    const e = await createEntry(db, alice, { pocketId: alicePocket, amountSatang: 100, occurredOn: '2026-03-10' });
+    await reconcilePocket(alicePocket, '2026-03-15');
+    await expect(deleteEntry(db, alice, e.id)).rejects.toBeInstanceOf(ConflictError);
+    expect(await getEntry(db, alice, e.id)).not.toBeNull(); // ยังอยู่
+  });
+
+  test('ลบรายการในลูกที่งวดของแม่ปิดแล้ว → 409 (ไล่แม่)', async () => {
+    const child = await seedChildPocket(alice, alicePocket);
+    const e = await createEntry(db, alice, { pocketId: child, amountSatang: 100, occurredOn: '2026-03-10' });
+    await reconcilePocket(alicePocket, '2026-03-15');
+    await expect(deleteEntry(db, alice, e.id)).rejects.toBeInstanceOf(ConflictError);
+  });
+
+  test('ลบรายการที่ลบไปแล้ว → NotFoundError', async () => {
+    const e = await createEntry(db, alice, { pocketId: alicePocket, amountSatang: 100 });
+    await deleteEntry(db, alice, e.id);
+    await expect(deleteEntry(db, alice, e.id)).rejects.toBeInstanceOf(NotFoundError);
+  });
+
+  test('ลบรายการของผู้ใช้อื่น → ForbiddenError · แถวยังอยู่ใน DB', async () => {
+    const e = await createEntry(db, bob, { pocketId: bobPocket, amountSatang: 100 });
+    await expect(deleteEntry(db, alice, e.id)).rejects.toBeInstanceOf(ForbiddenError);
+    const row = await db.prepare('SELECT deleted_at FROM entry WHERE id = ?').bind(e.id).first<{ deleted_at: string | null }>();
+    expect(row?.deleted_at).toBeNull();
+  });
+
+  // 🔴 ขาโยกเงินต้องลบพร้อมกันทั้งคู่ ไม่งั้นยอดสองกระเป๋าไม่บาลานซ์
+  test('ลบขาโยกเงิน → ทั้งสองขาถูกลบ · ยอดสองกระเป๋ากลับไปเท่าก่อนโยก', async () => {
+    const dest = await seedPocket(alice);
+    await createEntry(db, alice, { pocketId: alicePocket, amountSatang: 100000, occurredOn: '2026-03-01' });
+    const { outflow } = await createTransfer(db, alice, { fromPocketId: alicePocket, toPocketId: dest, amountSatang: 30000, occurredOn: '2026-03-02' });
+    expect(await balanceOf(alicePocket)).toBe(70000);
+    expect(await balanceOf(dest)).toBe(30000);
+
+    await deleteEntry(db, alice, outflow.id);
+
+    expect(await balanceOf(alicePocket)).toBe(100000);
+    expect(await balanceOf(dest)).toBe(0);
+    expect(await listEntries(db, alice, dest)).toHaveLength(0);
+  });
+
+  test('ลบขาโยกเงินที่ปลายทางอยู่ในงวดปิดแล้ว → 409 · ไม่มีขาไหนถูกลบ', async () => {
+    const dest = await seedPocket(alice);
+    const { outflow } = await createTransfer(db, alice, { fromPocketId: alicePocket, toPocketId: dest, amountSatang: 30000, occurredOn: '2026-03-02' });
+    await reconcilePocket(dest, '2026-03-15'); // ปลายทางปิดงวดคลุมวันโอน
+    await expect(deleteEntry(db, alice, outflow.id)).rejects.toBeInstanceOf(ConflictError);
+    expect(await balanceOf(alicePocket)).toBe(-30000);
+    expect(await balanceOf(dest)).toBe(30000); // ทั้งสองขายังอยู่
   });
 });
 

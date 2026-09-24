@@ -48,7 +48,7 @@
 - [x] rollup ยอดกระเป๋าแม่ (ยอดตัวเอง + ลูกทุกชั้น) — view `pocket_subtree` (recursive, 0008) + กรอง `pocket_member` ต่อผู้ใช้ใน query เดียว (ไม่ N+1) · `getRollupBalanceAsOf` (มีขอบวัน) พร้อมสำหรับ reconcile กระเป๋าแม่
 - [x] `entry.repository.ts` — append-only · โยกเงินสองขาใน batch เดียว · กันลงรายการทับงวดที่กระทบยอดแล้ว (`last_reconciled_at` เกณฑ์ `<=` · เช็คทั้งสองกระเป๋าตอนโยก) · กัน transfer ยอด ≤ 0 และโยกเข้าตัวเอง
 - [x] `category.repository.ts` — user-scoped · archived filter
-- [ ] แก้/ลบรายการที่กรอกผิด — reversal entry (`reverses_id`) + soft delete (`deleted_at`) · ยังไม่มีฟังก์ชันใน `entry.repository.ts`
+- [x] ลบรายการที่กรอกผิด — **soft delete เท่านั้น** (`deleted_at`) · ลบได้เฉพาะงวดที่ยังไม่ปิด (ไล่เส้นแม่ทุกชั้น) · ขาโยกเงินลบทั้งคู่ atomic · **ไม่ทำ reversal (`reverses_id`) ใน v0** — ย้ายไป v3 (ดูเหตุผลใน STATUS §2)
 - [ ] endpoint archive กระเป๋า — 🔴 **ห้าม archive กระเป๋าที่ยอดยังไม่เป็น 0** · ธนาคารไม่รู้จักการ archive เงินที่ยังอยู่ในบัญชีต้องถูกนับ (rollup รวม archived โดยตั้งใจ) ถ้าปล่อย archive ทั้งที่มียอด จะเจอส่วนต่างที่อธิบายไม่ได้ทุกครั้งที่กระทบยอด
 
 ### services
@@ -126,6 +126,7 @@
 - [ ] บอท: พิมพ์ข้อความ → บันทึกรายการ
 - [ ] LINE webhook (รับข้อความจากบอท) + **ตรวจ signature ทุก request** · ตั้ง Webhook URL + เปิดสวิตช์ Webhook ใน OA Manager ตอนนี้
 - [ ] อ่านสลิป (vision) → **อ่านแล้วลบทันที** เก็บเฉพาะข้อมูลที่สกัดออกมา
+- [ ] reversal entry (`reverses_id`) — รายการที่ระบบสร้างเอง (บอท/สลิป) อาจต้องมีร่องรอยการแก้ที่มองเห็นได้ (v0 ใช้ soft delete พอ)
 - [ ] กระเป๋าร่วม + เชิญสมาชิก
 - [ ] สิทธิ์ในกระเป๋าร่วม (ใครแก้ได้ ใครดูได้อย่างเดียว)
 - [ ] `left_at` — ออกจากกระเป๋าแล้วประวัติยังอยู่
