@@ -103,9 +103,19 @@ async function assertOwnsCategory(db: D1Database, userId: string, categoryId: st
 // เส้นเป็นวันที่ปิดงวดแล้วเสมอ (ห้ามวันนี้/อนาคต — reconcile.service กันตอนตั้ง)
 // จึงไม่บล็อกรายการของวันนี้ · trigger (0007) การันตีเส้นเป็น YYYY-MM-DD → เทียบ
 // string ได้ตรงลำดับเวลา · การ insert เกิดที่ไฟล์นี้ที่เดียว ด่านจึงต้องอยู่ตรงนี้
+//
+// 🔴 ต้องดูเส้นของกระเป๋านี้ + แม่ทุกชั้น (ผ่าน pocket_subtree) แล้วใช้เส้นที่ใหม่ที่สุด
+// เพราะ reconcile ทำงานระดับ rollup (ยอดแม่ = ตัวเอง + ลูก) — ลงรายการย้อนหลังในลูก
+// จะเปลี่ยน rollup ของแม่ ณ วันที่แม่ปิดงวด = ทำให้การกระทบยอดของแม่เป็นโมฆะเงียบ ๆ
+// (pocket_subtree: node_id = กระเป๋านี้ → root_id ไล่ขึ้นไปถึงตัวเอง+แม่ทุกชั้น)
 async function assertNotReconciled(db: D1Database, pocketId: string, occurredOn: string): Promise<void> {
   const row = await db
-    .prepare('SELECT last_reconciled_at AS line FROM pocket WHERE id = ?')
+    .prepare(
+      `SELECT MAX(p.last_reconciled_at) AS line
+       FROM pocket_subtree st
+       JOIN pocket p ON p.id = st.root_id
+       WHERE st.node_id = ?`
+    )
     .bind(pocketId)
     .first<{ line: string | null }>();
   const line = row?.line ?? null;
