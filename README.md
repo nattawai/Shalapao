@@ -1,26 +1,35 @@
 # Shalapao — ชาลาเปา
 
-แอปกระเป๋าเงินหลายใบบน LINE · เก็บเงิน ตั้งเป้า และกระทบยอดให้ตรงธนาคารเสมอ
+**แอปกระเป๋าเงินหลายใบบน LINE** · แบ่งเงินเป็นซอง บันทึกรายรับรายจ่าย และกระทบยอดให้ตรงกับธนาคารได้เสมอ
 
-Version: 0.0.1 · Status: **v0 — กำลังสร้าง**
-Owner: ไว (world_wai / waivern) · Shalam Corporation
-Design: `../../..\Shalam Corporation\Shalam Corp Studio\Plans\pocket-app-design.md`
+`v0.1.0` · [Changelog](./CHANGELOG.md) · [Roadmap](./docs/ROADMAP.md) · [Backlog](./docs/BACKLOG.md)
+
+> **EN** — A multi-pocket (envelope budgeting) app that runs inside LINE as a LIFF app.
+> Built on Cloudflare Workers + D1 with an append-only ledger and a reconciliation
+> boundary that prevents silently double-counting corrections. Thai documentation below.
 
 ---
 
-## ชื่อนี้มาจากไหน
+## ทำไมถึงมีแอปนี้
+
+**แอปจดรายจ่ายไม่ได้ตายเพราะกรอกยาก — มันตายตอนตัวเลขไม่ตรงกับธนาคาร แล้วเจ้าของเลิกเชื่อ**
+
+พอไม่เชื่อตัวเลขบนจอ ก็ต้องกลับไปเปิดแอปธนาคารดูทุกครั้งอยู่ดี แล้วแอปจดรายจ่ายก็ไม่มีเหตุผลที่จะมีอยู่
+
+Shalapao จึงออกแบบรอบ **ปุ่มกระทบยอด** ตั้งแต่ v0 — ต่อให้ขาดกรอกไปสองสัปดาห์ ก็กดเทียบกับยอดจริงในแอปธนาคารแล้วกลับมาตรงได้ ระบบจะออกรายการปรับส่วนต่างให้เอง แล้วปิดงวดไม่ให้ตัวเลขที่ยืนยันแล้วเพี้ยนย้อนหลัง
+
+### ชื่อนี้มาจากไหน
 
 `Shala` จาก **Shalam** + `pao` จาก **กระเป๋า** · อ่านว่า *ชาลาเปา*
 ซาลาเปามีไส้อยู่ข้างใน เหมือนกระเป๋ามีเงินอยู่ข้างใน
 
 ---
 
-## ระบบนี้คืออะไร
+## ภาพหน้าจอ
 
-**แอปกระเป๋าเงินหลายใบ ที่ยอมรับตั้งแต่ต้นว่าคนจะลืมกรอก และยังบอกความจริงได้อยู่ดี**
-
-แอปจดรายจ่ายไม่ได้ตายเพราะกรอกยาก — มันตายตอนตัวเลขไม่ตรงกับธนาคาร แล้วเจ้าของเลิกเชื่อ
-ระบบนี้จึงมีปุ่ม **กระทบยอด** ที่ทำให้กลับมาตรงได้เสมอ ไม่ว่าจะขาดหายไปกี่วัน
+| รายการกระเป๋า | เพิ่มรายการ | กระทบยอด |
+|---|---|---|
+| ![รายการกระเป๋า](./docs/screenshots/pockets.png) | ![เพิ่มรายการ](./docs/screenshots/entry.png) | ![กระทบยอด](./docs/screenshots/reconcile.png) |
 
 ---
 
@@ -28,40 +37,96 @@ Design: `../../..\Shalam Corporation\Shalam Corp Studio\Plans\pocket-app-design.
 
 | ชั้น | ใช้อะไร |
 |---|---|
-| Backend | Hono บน Cloudflare Workers |
-| Frontend | React + Vite เสิร์ฟเป็น static assets จาก Worker เดียวกัน |
-| Database | Cloudflare D1 (SQLite) |
-| Auth | LINE Login (LIFF) · Google SSO เพิ่มทีหลัง |
+| Runtime | Cloudflare Workers |
+| HTTP | Hono |
+| Database | Cloudflare D1 (SQLite) · `STRICT` tables |
+| Validation | Zod ที่ขอบทุก endpoint |
+| Auth | LINE Login — ตรวจ ID token กับ LINE ทุก request |
+| Frontend | HTML/CSS/JS ล้วน เสิร์ฟเป็น static asset จาก Worker เดียวกัน |
+| Test | Vitest + `@cloudflare/vitest-pool-workers` (รันบน workerd + Miniflare D1 จริง) |
 
-**ยังไม่ใช้ Next.js** — v0 มี 4 หน้าจอ ไม่ต้องการ SEO/SSR ตาม `Tech Stack.md`: *"งานเล็กไม่จำเป็นต้องลาก Next.js มาทั้งชุด อย่า over-engineer"*
+**ไม่มี framework ฝั่งหน้าจอ ไม่มี build step** — v0 มี 4 หน้าจอ การลาก React/Next เข้ามาจะได้ความซับซ้อนมากกว่าที่ได้ประโยชน์
 
 ---
 
-## โครงโฟลเดอร์
+## การตัดสินใจเชิงวิศวกรรม
+
+### เงินเป็นจำนวนเต็มสตางค์ ห้าม float
+
+`758.63 + 666.67` บวกกันไม่กี่พันครั้งก็เริ่มเพี้ยนทีละ `0.01` แล้วยอดไม่ตรงธนาคาร — ซึ่งทำลายเหตุผลทั้งหมดที่แอปนี้มีอยู่
+
+การแบ่งเงินตามสัดส่วนจึงต้องรับประกันว่า **ผลรวมเท่ายอดเต็มเสมอ** — ปัดลงทุกก้อนแล้วโยนเศษให้เจ้าภาพ ไม่ใช่ปัดแยกกันแล้วหวังว่าจะบวกกันลงตัว
+
+### ยอดคงเหลือไม่เก็บ คำนวณสดจาก view
+
+ถ้าเก็บยอดไว้ในคอลัมน์ วันหนึ่งมันจะไม่ตรงกับผลรวมของรายการ แล้วไม่มีใครรู้ว่าอันไหนถูก
+
+ยอดกระเป๋าแม่เป็น **rollup** ของทั้งกิ่ง คำนวณด้วย recursive CTE ที่**เดินผ่านเฉพาะกระเป๋าที่ผู้ใช้เป็นสมาชิก** — ถ้าไล่ `parent_id` ดิบ ๆ ยอดของกระเป๋าที่ไม่ได้แชร์จะรั่วเข้ามาในยอดรวมที่คนอื่นเห็น
+
+### Append-only ledger + เส้นแบ่งการกระทบยอด
+
+ไม่มี `UPDATE` และไม่มี `DELETE` กับรายการ — การแก้คือการเพิ่มรายการใหม่มาหักล้าง
+
+แต่ append-only อย่างเดียวยังมีบั๊กที่มองไม่เห็น: **ถ้ากระทบยอดไปแล้ว แล้วยังแก้รายการในงวดนั้นได้ จะหักลบซ้ำสองรอบ** เพราะการกระทบยอดได้ปรับยอดรวมให้ถูกไปแล้ว
+
+`pocket.last_reconciled_at` จึงเป็นเส้นแบ่ง — รายการที่ `occurred_on` ก่อนหรือเท่ากับเส้นนั้น เพิ่ม/ลบไม่ได้อีก และ**การตรวจไล่ขึ้นไปถึงกระเป๋าแม่ทุกชั้น** เพราะการลงรายการในกระเป๋าลูกทำให้ rollup ของแม่ ณ วันที่ปิดงวดเปลี่ยน
+
+### กันข้อมูลรั่วข้ามผู้ใช้ด้วยโครงสร้าง ไม่ใช่วินัย
+
+D1 ไม่มี row-level security — **ลืมกรองแถวเดียวเท่ากับข้อมูลการเงินของคนอื่นหลุด**
+
+ทุก query จึงเริ่มจาก `pocket_member` ที่ยัง active เสมอ และ `routes/` ถูก **ESLint ห้าม import `repositories/` ตรง ๆ** ไม่ใช่ห้ามด้วยข้อตกลงในหัว
+
+และ FK ของ SQLite เช็คแค่ว่าแถวมีอยู่ ไม่เช็คว่าเป็นของใคร — `parentId` กับ `categoryId` ที่รับมาจึงต้องตรวจเจ้าของเองที่ชั้น repository
+
+### ID เป็น ULID จาก `monotonicFactory`
+
+ULID เก็บเวลาระดับมิลลิวินาทีไว้ 48 bit แรก ที่เหลือสุ่ม — **สร้างหลายตัวในมิลลิวินาทีเดียวกันแล้วลำดับระหว่างกันจะมั่ว**
+
+เกิดแน่นอนตอนแบ่งเงินเดือนที่ insert หลายแถวรวดเดียว แล้ว `ORDER BY id` จะไม่ตรงกับลำดับจริง — บั๊กที่หายากมากเพราะเกิดเฉพาะตอน insert รัวและดูเหมือนทุกอย่างปกติ
+
+### วันที่อิงเขตเวลาไทย ไม่ใช่ UTC
+
+`new Date().toISOString()` คืนวันที่ UTC — ไทยคือ UTC+7 แปลว่า**รายการที่บันทึกระหว่างเที่ยงคืนถึงตี 7 จะลงเป็นวันของเมื่อวาน**
+
+บั๊กนี้ผ่าน test มาได้ในตอนแรกเพราะ test เลือกเวลาที่ UTC กับไทยตรงกันพอดี — แก้แล้วเขียน test ที่ตรึงเวลาตี 3 ตามเวลาไทยเพื่อพิสูจน์ว่าจับได้จริง
+
+### Auth: ตรวจ ID token กับ LINE ทุก request และ fail closed
+
+`userId` มาจาก ID token ที่ LINE เซ็นเท่านั้น — **ไม่รับจาก body, query หรือ header ในรูปแบบใด ๆ** เพราะถ้ารับได้ กลไกกันข้อมูลรั่วทั้งระบบพังในบรรทัดเดียว
+
+ตรวจซ้ำทั้ง `iss` `aud` `exp` `sub` จาก claims ที่ LINE คืนมา และการ verify ล้มเหลวด้วยเหตุใดก็ตาม (token ปลอม, หมดอายุ, LINE ล่ม, timeout) **ออกทางเดียวคือปฏิเสธ** · `401` ไม่บอกเหตุผล เพราะการบอกคือการบอกผู้โจมตีว่าเดาถูกข้อไหนแล้ว
+
+v0 ไม่ต้องใช้ secret สักตัว — `client_id` ของ LINE Login เป็นค่าสาธารณะ
+
+### TDD บังคับเฉพาะที่คุ้ม
+
+`domain/` และ `services/` บังคับ red-green-refactor · `repositories/` ต้องมี test แต่เขียนทีหลังได้ · `routes/` เอาแค่ happy path
+
+บังคับ 100% กับ plumbing แล้วคนจะเลิกทำทั้งหมด — และ test ที่พิสูจน์ว่าผู้ใช้ A เข้าถึงข้อมูลผู้ใช้ B ไม่ได้ **ห้ามลบ ห้าม skip**
+
+Test ของ repository รันบน **D1 จริงผ่าน workerd + Miniflare** ไม่ใช่ mock — เพราะ test ที่พิสูจน์ว่าข้อมูลไม่รั่วจะไม่มีความหมาย ถ้า SQL ไม่ได้ถูกรันจริงบน schema จริง
+
+---
+
+## โครงสร้าง
 
 ```
-Shalapao/
-├─ migrations/        SQL · เรียงตามลำดับ dependency
-├─ src/
-│  ├─ index.ts        Hono entry
-│  ├─ routes/         HTTP บาง ๆ — แปลง request/response เท่านั้น
-│  ├─ services/       business rule ทั้งหมด
-│  ├─ repositories/   แตะ D1 ได้ที่เดียวในระบบ
-│  ├─ domain/         type · money · id · ไม่มี side effect
-│  ├─ lib/            liff · line client
-│  └─ web/            React app ของ LIFF
-├─ tests/
-└─ wrangler.toml
+src/
+├─ index.ts        Hono entry · wire auth middleware ที่ /api/* ก่อนมี route จริง
+├─ routes/         แปลง HTTP เท่านั้น · จุดเดียวที่แปลง error → status code
+├─ services/       business rule
+├─ repositories/   แตะ D1 ได้ที่เดียวในระบบ · ยัด user filter อัตโนมัติ
+├─ middleware/     auth
+├─ domain/         money · id · errors · ไม่มี side effect ไม่ import ชั้นไหนเลย
+└─ lib/            LINE client
 ```
-
-### กฎ dependency
 
 ```
 routes → services → repositories → D1
 ```
 
-**บังคับด้วย ESLint** ใน `eslint.config.js` ไม่ใช่พึ่งวินัย
-เหตุผล: `repositories/` คือที่เดียวที่ยัด `pocket_member` filter ให้อัตโนมัติ — D1 ไม่มี row-level security ลืมกรองแถวเดียวเท่ากับข้อมูลการเงินคนอื่นหลุด
+บังคับด้วย ESLint `no-restricted-imports` ใน `eslint.config.js`
 
 ---
 
@@ -69,37 +134,23 @@ routes → services → repositories → D1
 
 ```bash
 pnpm install
-
-# สร้าง D1 แล้วเอา database_id ไปใส่ใน wrangler.toml
-pnpm db:create
-pnpm db:local          # รัน migration กับเครื่องตัวเอง
-
-cp .env.example .dev.vars   # แล้วเติม LINE secret
+pnpm db:local           # รัน migration กับ D1 ในเครื่อง
 pnpm dev
+pnpm check              # typecheck + lint + test
 ```
 
-ดูเรื่อง LINE provider/channel ที่ `../_docs/line-provider-channels.md`
-🔴 **บอทกับ LIFF ต้องอยู่ provider เดียวกัน** ไม่งั้นได้ `userId` คนละตัวสำหรับคนเดียวกัน
+`LIFF_LOGIN_CHANNEL_ID` อยู่ใน `wrangler.toml` `[vars]` — เป็นค่าสาธารณะ ไม่ใช่ secret
+
+🔴 **บอท (Messaging API) กับ LIFF ต้องอยู่ภายใต้ LINE provider เดียวกัน** ไม่งั้นได้ `userId` คนละตัวสำหรับคนเดียวกัน แล้วรู้ตัวตอนมีข้อมูลจริงแล้วซึ่งแก้ยากมาก
 
 ---
 
-## ข้อตกลงที่ห้ามผิด
+## สถานะ
 
-1. **เงินเป็นจำนวนเต็มสตางค์** ห้าม float — ใช้ `domain/money.ts`
-2. **id เป็น ULID จาก `monotonicFactory`** ห้ามเรียก `ulid()` ตรง ๆ — ใช้ `domain/id.ts`
-3. **ไม่มี `DELETE`** ลบ = ประทับ `deleted_at` · แก้ = เพิ่มรายการกลับ
-4. **ยอดคงเหลือไม่เก็บ** อ่านจาก view `pocket_balance` เสมอ
-5. **ทุก query ผ่าน `pocket_member`** ห้ามเขียน SQL จาก `routes/`
-6. **แก้รายการเก่ากว่า `pocket.last_reconciled_at` ไม่ได้** ต้องออกรายการปรับของวันนี้แทน ไม่งั้นเกิดบั๊กนับซ้ำ
+**v0 ใช้งานได้จริงบนมือถือแล้ว** — สร้างกระเป๋าซ้อนชั้น · บันทึกเงินเข้า/ออก · โยกเงินระหว่างกระเป๋า · ลบรายการ · กระทบยอด
+
+ถัดไปคือใช้จริงหนึ่งเดือนก่อนตัดสินใจว่า v1 ควรทำอะไร — ของที่เจอจากการใช้จริงบันทึกไว้ที่ [BACKLOG](./docs/BACKLOG.md) พร้อมวันที่และเหตุผลทุกข้อ
 
 ---
 
-## สถานะ v0
-
-- [x] Schema + migrations
-- [x] โครงโฟลเดอร์ + กฎ dependency
-- [x] `domain/money.ts` · `domain/id.ts`
-- [ ] `git init` + commit แรก
-- [ ] repositories layer
-- [ ] API + หน้าเว็บ
-- [ ] ปุ่มกระทบยอด
+*โปรเจกต์ส่วนตัว · พัฒนาโดย ไว (world_wai / waivern) · Shalam Corporation*
