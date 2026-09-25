@@ -8,6 +8,10 @@
 
 ## [Unreleased]
 
+---
+
+## [0.1.0] — 2026-09-25
+
 ### Added
 - Schema v0: `app_user` · `category` · `pocket` · `pocket_member` · `entry`
 - View `pocket_balance` — ยอดคงเหลือคำนวณสด กรอง `deleted_at` ให้ในที่เดียว

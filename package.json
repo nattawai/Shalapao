@@ -1,6 +1,6 @@
 {
   "name": "shalapao",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "description": "แอปกระเป๋าเงินหลายใบบน LINE — เก็บเงิน ตั้งเป้า และกระทบยอดให้ตรงธนาคารเสมอ",
