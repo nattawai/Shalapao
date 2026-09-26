@@ -31,3 +31,9 @@ jobs:
 
       - name: Test
         run: pnpm test
+
+      # จับ config/bundle ของ Worker พังตั้งแต่ CI แทนที่จะไปเจอตอน deploy จริง
+      # --dry-run: bundle + validate อย่างเดียว ไม่อัปโหลด ไม่ต้องใช้ CLOUDFLARE_API_TOKEN
+      # ใช้ wrangler ตัว local ที่ pin ไว้ (pnpm exec) ไม่ดึงเวอร์ชันใหม่จาก network
+      - name: Deploy dry-run
+        run: pnpm exec wrangler deploy --dry-run
