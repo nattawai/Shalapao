@@ -20,7 +20,9 @@ export default defineConfig(async () => {
           compatibilityDate: '2026-08-22',
           compatibilityFlags: ['nodejs_compat'],
           d1Databases: ['DB'],
-          bindings: { TEST_MIGRATIONS: migrations }
+          // LIFF_LOGIN_CHANNEL_ID = client_id (ไม่ใช่ความลับ · อยู่ [vars] ใน wrangler.toml)
+          // bind ไว้ให้ test ที่ยิง app จริง (src/index) ผ่าน auth middleware ที่อ่าน env ตัวนี้ได้
+          bindings: { TEST_MIGRATIONS: migrations, LIFF_LOGIN_CHANNEL_ID: 'TEST_CHANNEL' }
         }
       })
     ],
