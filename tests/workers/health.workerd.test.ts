@@ -18,4 +18,10 @@ describe('health endpoints', () => {
     expect(res.status).toBe(200);
     expect(((await res.json()) as { ok: boolean }).ok).toBe(true);
   });
+
+  // regression guard: ถ้าเผลอใส่ /health/db สาธารณะกลับมา ต้องจับได้ (ไม่ใช่ test ฟีเจอร์)
+  test('/health/db เส้นทางเก่าต้องไม่มีอีก → 404', async () => {
+    const res = await app.request('/health/db', { method: 'GET' }, runEnv);
+    expect(res.status).toBe(404);
+  });
 });
