@@ -172,6 +172,11 @@ describe('PATCH /api/pockets/:id', () => {
     expect((await patch(alice, id, { name: '   ' })).status).toBe(400);
   });
 
+  test('400 ชื่อยาวเกิน 60 ตัว', async () => {
+    const id = await createPocket(alice, 'p');
+    expect((await patch(alice, id, { name: 'x'.repeat(61) })).status).toBe(400);
+  });
+
   test('400 field ที่ไม่รู้จัก (strict) — กัน kind/lastReconciledAt หลุดเข้ามา', async () => {
     const id = await createPocket(alice, 'p');
     expect((await patch(alice, id, { kind: 'flow_through' })).status).toBe(400);
