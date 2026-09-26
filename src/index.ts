@@ -12,17 +12,10 @@ import { upsertUserByLineId } from './repositories/app-user.repository';
 
 const app = new Hono<AuthEnv>();
 
+// /health เปล่า ๆ ไม่แตะ DB — เปิดสาธารณะได้ (uptime probe) ไม่เปิดเผยอะไรที่มีค่า
 app.get('/health', (c) =>
   c.json({ ok: true, env: c.env.APP_ENV, at: new Date().toISOString() })
 );
-
-// ตรวจว่าต่อ D1 ติดจริง — ใช้ยืนยันว่า migration รันแล้ว
-app.get('/health/db', async (c) => {
-  const r = await c.env.DB.prepare(
-    "SELECT name FROM sqlite_master WHERE type IN ('table','view') ORDER BY name"
-  ).all<{ name: string }>();
-  return c.json({ ok: true, objects: r.results.map((x) => x.name) });
-});
 
 // ทุก route ใต้ /api ต้องผ่าน auth ก่อน — wire ไว้ก่อนมี route จริง เพื่อให้ route
 // ที่เกิดหลังจากนี้ถูกป้องกันโดยโครงสร้าง ไม่ใช่โดยการจำไปใส่เอง · userId มาจาก
@@ -35,6 +28,17 @@ app.use(
     getChannelId: (env) => lineLoginChannelId(env)
   })
 );
+
+// ตรวจว่าต่อ D1 ติดจริง — อยู่ใต้ auth (/api/*) ไม่เปิดให้ probe โดยไม่ยืนยันตัวตน
+// ตอบแค่ ok/fail · ไม่คืนรายชื่อ table/view หรือ error จาก D1 (กันเปิดเผยว่ามี DB จริงและ schema)
+app.get('/api/health/db', async (c) => {
+  try {
+    await c.env.DB.prepare('SELECT 1').first();
+    return c.json({ ok: true });
+  } catch {
+    return c.json({ ok: false }, 503);
+  }
+});
 
 // ชั่วคราว: smoke test สำหรับ first deploy — พิสูจน์ auth ด้วย ID token จริง
 // ต้องถูกแทนที่ตอนทำหน้าจอจริง ไม่ใช่ต่อยอดจากมัน

@@ -20,7 +20,12 @@ export default defineConfig(async () => {
           compatibilityDate: '2026-08-22',
           compatibilityFlags: ['nodejs_compat'],
           d1Databases: ['DB'],
-          bindings: { TEST_MIGRATIONS: migrations }
+          // LIFF_LOGIN_CHANNEL_ID = client_id (ไม่ใช่ความลับ · อยู่ [vars] ใน wrangler.toml)
+          // bind ไว้ให้ test ที่ยิง app จริง (src/index) ผ่าน auth middleware ที่อ่าน env ตัวนี้ได้
+          bindings: { TEST_MIGRATIONS: migrations, LIFF_LOGIN_CHANNEL_ID: 'TEST_CHANNEL' },
+          // ASSETS: prod ใช้ default not_found_handling = none → path ที่ไม่ตรง asset ตอบ 404
+          // stub ให้ตรงพฤติกรรมนั้น เพื่อให้ test ยิง app จริงแล้ว fallback `app.get('*')` ได้ 404 จริง
+          serviceBindings: { ASSETS: () => new Response(null, { status: 404 }) }
         }
       })
     ],
