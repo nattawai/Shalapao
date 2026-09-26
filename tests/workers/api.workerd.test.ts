@@ -148,3 +148,46 @@ describe('GET/POST /api/categories', () => {
     expect(categories.map((c) => c.name)).toEqual(['ของบ๊อบ']);
   });
 });
+
+describe('PATCH /api/pockets/:id', () => {
+  async function createPocket(user: string, name: string): Promise<string> {
+    const res = await app.request('/api/pockets', as(user, { method: 'POST', body: JSON.stringify({ name }) }), runEnv);
+    return ((await res.json()) as { pocket: { id: string } }).pocket.id;
+  }
+  async function patch(user: string, id: string, body: unknown): Promise<Response> {
+    return app.request(`/api/pockets/${id}`, as(user, { method: 'PATCH', body: JSON.stringify(body) }), runEnv);
+  }
+
+  test('200 แก้ชื่อสำเร็จ · อ่านกลับได้ชื่อใหม่', async () => {
+    const id = await createPocket(alice, 'ชื่อเก่า');
+    const res = await patch(alice, id, { name: 'ชื่อใหม่' });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { pocket: { name: string } }).pocket.name).toBe('ชื่อใหม่');
+    const list = await app.request('/api/pockets', as(alice), runEnv);
+    expect(((await list.json()) as { pockets: { name: string }[] }).pockets.map((p) => p.name)).toEqual(['ชื่อใหม่']);
+  });
+
+  test('400 ชื่อเป็นช่องว่างล้วน', async () => {
+    const id = await createPocket(alice, 'p');
+    expect((await patch(alice, id, { name: '   ' })).status).toBe(400);
+  });
+
+  test('400 field ที่ไม่รู้จัก (strict) — กัน kind/lastReconciledAt หลุดเข้ามา', async () => {
+    const id = await createPocket(alice, 'p');
+    expect((await patch(alice, id, { kind: 'flow_through' })).status).toBe(400);
+    expect((await patch(alice, id, { lastReconciledAt: '2026-03-15' })).status).toBe(400);
+  });
+
+  test('403 categoryId เป็นของผู้ใช้อื่น', async () => {
+    const created = await app.request('/api/categories', as(bob, { method: 'POST', body: JSON.stringify({ name: 'ของบ๊อบ' }) }), runEnv);
+    const bobCatId = ((await created.json()) as { category: { id: string } }).category.id;
+    const id = await createPocket(alice, 'p');
+    expect((await patch(alice, id, { categoryId: bobCatId })).status).toBe(403);
+  });
+
+  // 🔴 §2.3 ห้ามลบ ห้าม skip
+  test('403 ผู้ใช้ B แก้กระเป๋าของผู้ใช้ A ไม่ได้', async () => {
+    const alicePocket = await createPocket(alice, 'ของอลิซ');
+    expect((await patch(bob, alicePocket, { name: 'แอบแก้' })).status).toBe(403);
+  });
+});
