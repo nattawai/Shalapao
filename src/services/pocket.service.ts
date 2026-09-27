@@ -1,6 +1,8 @@
 import {
+  archivePocket as repoArchivePocket,
   createPocket as repoCreatePocket,
   listPockets as repoListPockets,
+  unarchivePocket as repoUnarchivePocket,
   updatePocket as repoUpdatePocket,
   type CreatePocketInput,
   type ListPocketsOptions,
@@ -33,4 +35,12 @@ export function updatePocket(
   patch: UpdatePocketInput
 ): Promise<PocketWithBalance> {
   return repoUpdatePocket(db, userId, pocketId, patch);
+}
+
+export function archivePocket(db: D1Database, userId: string, pocketId: string): Promise<PocketWithBalance> {
+  return repoArchivePocket(db, userId, pocketId);
+}
+
+export function unarchivePocket(db: D1Database, userId: string, pocketId: string): Promise<PocketWithBalance> {
+  return repoUnarchivePocket(db, userId, pocketId);
 }

@@ -1,5 +1,6 @@
-import { ForbiddenError } from '../domain/errors';
+import { ConflictError, ForbiddenError } from '../domain/errors';
 import { newId, nowIso } from '../domain/id';
+import { satangToBaht } from '../domain/money';
 import { getEntry, type Entry } from './entry.repository';
 
 export type PocketKind = 'holds_balance' | 'flow_through';
@@ -298,5 +299,32 @@ export async function updatePocket(
 
   const updated = await getPocket(db, userId, pocketId);
   if (!updated) throw new Error('แก้กระเป๋าแล้วอ่านกลับไม่เจอ — ไม่ควรเกิด');
+  return updated;
+}
+
+// จัดเก็บกระเป๋า — ได้เฉพาะเมื่อยอด rollup ทั้งกิ่ง = 0 (ไม่ใช่ยอดตัวเอง)
+// ธนาคารไม่รู้จักการ archive · เงินที่ยังอยู่ในบัญชีต้องถูกนับ ถ้าปล่อยให้เก็บทั้งที่มียอด
+// จะเจอส่วนต่างที่อธิบายไม่ได้ทุกครั้งที่ตรวจยอด · entry เก่ายังอยู่ ยังถูกนับใน rollup ต่อไป
+export async function archivePocket(db: D1Database, userId: string, pocketId: string): Promise<PocketWithBalance> {
+  const pocket = await getPocket(db, userId, pocketId);
+  if (!pocket) throw new ForbiddenError('pocket_forbidden', 'กระเป๋านี้ไม่ใช่ของคุณ — จัดเก็บไม่ได้');
+  if (pocket.rollupSatang !== 0) {
+    throw new ConflictError(
+      'pocket_not_empty',
+      `กระเป๋านี้ยังมีเงิน ${satangToBaht(pocket.rollupSatang)} บาท — ต้องโยกออกให้หมดก่อนจัดเก็บ`
+    );
+  }
+  await db.prepare('UPDATE pocket SET archived_at = ? WHERE id = ?').bind(nowIso(), pocketId).run();
+  const updated = await getPocket(db, userId, pocketId);
+  if (!updated) throw new Error('จัดเก็บกระเป๋าแล้วอ่านกลับไม่เจอ — ไม่ควรเกิด');
+  return updated;
+}
+
+export async function unarchivePocket(db: D1Database, userId: string, pocketId: string): Promise<PocketWithBalance> {
+  const pocket = await getPocket(db, userId, pocketId);
+  if (!pocket) throw new ForbiddenError('pocket_forbidden', 'กระเป๋านี้ไม่ใช่ของคุณ — เรียกคืนไม่ได้');
+  await db.prepare('UPDATE pocket SET archived_at = NULL WHERE id = ?').bind(pocketId).run();
+  const updated = await getPocket(db, userId, pocketId);
+  if (!updated) throw new Error('เรียกคืนกระเป๋าแล้วอ่านกลับไม่เจอ — ไม่ควรเกิด');
   return updated;
 }
