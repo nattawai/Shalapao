@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { ValidationError } from '../domain/errors';
 import type { AuthEnv } from '../middleware/auth';
 import { listEntries } from '../services/entry.service';
-import { createPocket, listPockets, updatePocket } from '../services/pocket.service';
+import { archivePocket, createPocket, listPockets, unarchivePocket, updatePocket } from '../services/pocket.service';
 import { createPocketSchema, listPocketsQuerySchema, patchPocketSchema } from './schemas/pocket.schema';
 
 // userId มาจาก context ที่ auth middleware ยัดไว้ (token ที่ LINE เซ็น) — ไม่รับจาก client
@@ -51,5 +51,16 @@ pocketRoutes.patch('/:id', async (c) => {
     ...(parsed.sortOrder !== undefined ? { sortOrder: parsed.sortOrder } : {}),
     ...(parsed.categoryId !== undefined ? { categoryId: parsed.categoryId } : {})
   });
+  return c.json({ pocket });
+});
+
+// จัดเก็บ/เรียกคืนกระเป๋า — ไม่มี body · archive ได้เฉพาะยอด rollup = 0 (repository → 409 ถ้ามีเงิน)
+pocketRoutes.post('/:id/archive', async (c) => {
+  const pocket = await archivePocket(c.env.DB, c.get('userId'), c.req.param('id'));
+  return c.json({ pocket });
+});
+
+pocketRoutes.post('/:id/unarchive', async (c) => {
+  const pocket = await unarchivePocket(c.env.DB, c.get('userId'), c.req.param('id'));
   return c.json({ pocket });
 });

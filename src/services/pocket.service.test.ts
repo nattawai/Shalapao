@@ -1,6 +1,6 @@
 import { describe, expect, test, vi } from 'vitest';
 import * as pocketRepo from '../repositories/pocket.repository';
-import { createPocket, listPockets, updatePocket } from './pocket.service';
+import { archivePocket, createPocket, listPockets, unarchivePocket, updatePocket } from './pocket.service';
 
 // pocket.service เป็น forwarder — งานจริง (สิทธิ์ · ownership · balance จาก view) อยู่ที่
 // repository และการแปลง error เป็น HTTP อยู่ที่ route · test นี้ล็อกสัญญาว่า service
@@ -8,7 +8,9 @@ import { createPocket, listPockets, updatePocket } from './pocket.service';
 vi.mock('../repositories/pocket.repository', () => ({
   listPockets: vi.fn(),
   createPocket: vi.fn(),
-  updatePocket: vi.fn()
+  updatePocket: vi.fn(),
+  archivePocket: vi.fn(),
+  unarchivePocket: vi.fn()
 }));
 
 const db = {} as D1Database;
@@ -35,6 +37,16 @@ describe('pocket.service (forwarder)', () => {
     const out = await updatePocket(db, 'user-1', 'p3', { name: 'ชื่อใหม่' });
     expect(pocketRepo.updatePocket).toHaveBeenCalledWith(db, 'user-1', 'p3', { name: 'ชื่อใหม่' });
     expect(out).toBe(updated);
+  });
+
+  test('archivePocket / unarchivePocket ส่ง pocketId ต่อ · คืนผลจาก repository', async () => {
+    const p = { id: 'p4' };
+    vi.mocked(pocketRepo.archivePocket).mockResolvedValue(p as never);
+    vi.mocked(pocketRepo.unarchivePocket).mockResolvedValue(p as never);
+    expect(await archivePocket(db, 'user-1', 'p4')).toBe(p);
+    expect(pocketRepo.archivePocket).toHaveBeenCalledWith(db, 'user-1', 'p4');
+    expect(await unarchivePocket(db, 'user-1', 'p4')).toBe(p);
+    expect(pocketRepo.unarchivePocket).toHaveBeenCalledWith(db, 'user-1', 'p4');
   });
 
   test('ไม่กลืน error ที่ repository โยน — ปล่อยผ่านให้ route แปลง', async () => {

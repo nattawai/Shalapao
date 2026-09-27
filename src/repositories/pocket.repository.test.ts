@@ -1,8 +1,8 @@
 import { env } from 'cloudflare:test';
 import { beforeEach, describe, expect, test } from 'vitest';
-import { ForbiddenError } from '../domain/errors';
+import { ConflictError, ForbiddenError } from '../domain/errors';
 import { newId, nowIso, today } from '../domain/id';
-import { createPocket, getPocket, listPockets, updatePocket } from './pocket.repository';
+import { archivePocket, createPocket, getPocket, listPockets, unarchivePocket, updatePocket } from './pocket.repository';
 
 const db = env.DB;
 
@@ -32,7 +32,7 @@ async function seedCategory(userId: string, name: string): Promise<string> {
   return id;
 }
 
-async function archivePocket(pocketId: string): Promise<void> {
+async function forceArchive(pocketId: string): Promise<void> {
   await db.prepare('UPDATE pocket SET archived_at = ? WHERE id = ?').bind(nowIso(), pocketId).run();
 }
 
@@ -157,7 +157,7 @@ describe('listPockets — กระเป๋าที่ archive แล้ว', 
   test('ค่าเริ่มต้นไม่คืนกระเป๋าที่ archive แล้ว', async () => {
     const live = await createPocket(db, alice, { name: 'ยังใช้', kind: 'holds_balance' });
     const gone = await createPocket(db, alice, { name: 'เก็บแล้ว', kind: 'holds_balance' });
-    await archivePocket(gone.id);
+    await forceArchive(gone.id);
 
     const list = await listPockets(db, alice);
     expect(list.map((p) => p.id)).toEqual([live.id]);
@@ -166,7 +166,7 @@ describe('listPockets — กระเป๋าที่ archive แล้ว', 
   test('includeArchived: true คืนทั้งที่ยังใช้และที่ archive แล้ว', async () => {
     const live = await createPocket(db, alice, { name: 'ยังใช้', kind: 'holds_balance' });
     const gone = await createPocket(db, alice, { name: 'เก็บแล้ว', kind: 'holds_balance' });
-    await archivePocket(gone.id);
+    await forceArchive(gone.id);
 
     const list = await listPockets(db, alice, { includeArchived: true });
     expect(list.map((p) => p.id).sort()).toEqual([live.id, gone.id].sort());
@@ -174,7 +174,7 @@ describe('listPockets — กระเป๋าที่ archive แล้ว', 
 
   test('getPocket ยังคืนกระเป๋าที่ archive แล้ว — เรียกเจาะจง id เพื่อดู/กู้คืน', async () => {
     const p = await createPocket(db, alice, { name: 'เก็บแล้ว', kind: 'holds_balance' });
-    await archivePocket(p.id);
+    await forceArchive(p.id);
 
     const fetched = await getPocket(db, alice, p.id);
     expect(fetched?.id).toBe(p.id);
@@ -242,5 +242,64 @@ describe('updatePocket', () => {
     expect(after?.name).toBe('เปลี่ยนชื่อ');
     expect(after?.balanceSatang).toBe(350000);
     expect(after?.lastReconciledAt).toBe('2026-03-15');
+  });
+});
+
+// archive ได้เฉพาะกระเป๋าที่ยอด rollup ทั้งกิ่ง = 0 · entry เก่ายังอยู่ ยังถูกนับใน rollup
+describe('archivePocket / unarchivePocket', () => {
+  test('ยอด 0 → archive สำเร็จ', async () => {
+    const p = await createPocket(db, alice, { name: 'ว่าง', kind: 'holds_balance' });
+    const archived = await archivePocket(db, alice, p.id);
+    expect(archived.archivedAt).not.toBeNull();
+  });
+
+  test('ยอด ≠ 0 → ConflictError · ข้อความมีตัวเลขยอดจริง', async () => {
+    const p = await createPocket(db, alice, { name: 'มีเงิน', kind: 'holds_balance' });
+    await insertEntry(p.id, alice, 125000); // 1,250.00 บาท
+    await expect(archivePocket(db, alice, p.id)).rejects.toBeInstanceOf(ConflictError);
+    await expect(archivePocket(db, alice, p.id)).rejects.toThrow('1,250.00');
+  });
+
+  // 🔴 เช็ค rollup ทั้งกิ่ง ไม่ใช่ยอดตัวเอง: แม่ว่างแต่ลูกมีเงิน → archive แม่ไม่ได้
+  test('กระเป๋าแม่ที่ลูกยังมีเงิน → ConflictError', async () => {
+    const parent = await createPocket(db, alice, { name: 'แม่', kind: 'holds_balance' });
+    const child = await createPocket(db, alice, { name: 'ลูก', kind: 'holds_balance', parentId: parent.id });
+    await insertEntry(child.id, alice, 300000);
+    await expect(archivePocket(db, alice, parent.id)).rejects.toBeInstanceOf(ConflictError);
+  });
+
+  test('archive แล้ว listPockets ดีฟอลต์ไม่คืน · includeArchived=true คืน', async () => {
+    const p = await createPocket(db, alice, { name: 'จะเก็บ', kind: 'holds_balance' });
+    await archivePocket(db, alice, p.id);
+    expect(await listPockets(db, alice)).toHaveLength(0);
+    expect((await listPockets(db, alice, { includeArchived: true })).map((x) => x.id)).toEqual([p.id]);
+  });
+
+  test('archive ลูก (net 0) แล้ว rollup ของแม่ยังนับยอดเดิม · รายการไม่หาย', async () => {
+    const parent = await createPocket(db, alice, { name: 'แม่', kind: 'holds_balance' });
+    const child = await createPocket(db, alice, { name: 'ลูก', kind: 'holds_balance', parentId: parent.id });
+    await insertEntry(parent.id, alice, 50000); // แม่มีเอง 500
+    await insertEntry(child.id, alice, 100000); // ลูก +1000
+    await insertEntry(child.id, alice, -100000); // ลูก −1000 → net 0 (archive ได้)
+
+    const before = (await getPocket(db, alice, parent.id))?.rollupSatang;
+    await archivePocket(db, alice, child.id);
+    const after = await getPocket(db, alice, parent.id);
+    expect(after?.rollupSatang).toBe(before);
+    expect(after?.rollupSatang).toBe(50000); // ลูกที่ archive ยังอยู่ใน rollup (net 0)
+  });
+
+  test('unarchive แล้ว listPockets คืนกลับ', async () => {
+    const p = await createPocket(db, alice, { name: 'เก็บแล้ว', kind: 'holds_balance' });
+    await archivePocket(db, alice, p.id);
+    await unarchivePocket(db, alice, p.id);
+    expect((await listPockets(db, alice)).map((x) => x.id)).toEqual([p.id]);
+  });
+
+  // 🔴 ข้อ 2.3 — ห้ามลบ ห้าม skip
+  test('ผู้ใช้ B archive กระเป๋าของ A ไม่ได้ → ForbiddenError · ยังไม่ถูก archive', async () => {
+    const p = await createPocket(db, alice, { name: 'ของ Alice', kind: 'holds_balance' });
+    await expect(archivePocket(db, bob, p.id)).rejects.toBeInstanceOf(ForbiddenError);
+    expect((await getPocket(db, alice, p.id))?.archivedAt).toBeNull();
   });
 });

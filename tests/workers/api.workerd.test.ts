@@ -196,3 +196,51 @@ describe('PATCH /api/pockets/:id', () => {
     expect((await patch(bob, alicePocket, { name: 'แอบแก้' })).status).toBe(403);
   });
 });
+
+describe('POST /api/pockets/:id/archive และ /unarchive', () => {
+  async function createPocket(user: string, name: string): Promise<string> {
+    const res = await app.request('/api/pockets', as(user, { method: 'POST', body: JSON.stringify({ name }) }), runEnv);
+    return ((await res.json()) as { pocket: { id: string } }).pocket.id;
+  }
+  const archive = (user: string, id: string) => app.request(`/api/pockets/${id}/archive`, as(user, { method: 'POST' }), runEnv);
+  const unarchive = (user: string, id: string) => app.request(`/api/pockets/${id}/unarchive`, as(user, { method: 'POST' }), runEnv);
+  async function seedBalance(user: string, pocketId: string, satang: number): Promise<void> {
+    await db
+      .prepare(
+        `INSERT INTO entry (id, pocket_id, created_by_user_id, amount_satang, occurred_on, source, created_at)
+         VALUES (?, ?, (SELECT id FROM app_user WHERE line_user_id = ?), ?, ?, 'manual', ?)`
+      )
+      .bind(newId(), pocketId, user, satang, today(), nowIso())
+      .run();
+  }
+
+  test('200 archive กระเป๋าว่าง · หายจาก listPockets ดีฟอลต์', async () => {
+    const id = await createPocket(alice, 'ว่าง');
+    expect((await archive(alice, id)).status).toBe(200);
+    const list = await app.request('/api/pockets', as(alice), runEnv);
+    expect(((await list.json()) as { pockets: unknown[] }).pockets).toHaveLength(0);
+  });
+
+  test('409 archive กระเป๋าที่ยังมีเงิน · ข้อความมีตัวเลขยอดจริง', async () => {
+    const id = await createPocket(alice, 'มีเงิน');
+    await seedBalance(alice, id, 125000); // 1,250.00 บาท
+    const res = await archive(alice, id);
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { error: string; message: string };
+    expect(body.error).toBe('pocket_not_empty');
+    expect(body.message).toContain('1,250.00');
+  });
+
+  test('403 ผู้ใช้ B archive กระเป๋าของผู้ใช้ A', async () => {
+    const id = await createPocket(alice, 'ของอลิซ');
+    expect((await archive(bob, id)).status).toBe(403);
+  });
+
+  test('unarchive แล้วกลับมาใน listPockets', async () => {
+    const id = await createPocket(alice, 'เก็บแล้ว');
+    await archive(alice, id);
+    expect((await unarchive(alice, id)).status).toBe(200);
+    const list = await app.request('/api/pockets', as(alice), runEnv);
+    expect(((await list.json()) as { pockets: { id: string }[] }).pockets.map((p) => p.id)).toEqual([id]);
+  });
+});
