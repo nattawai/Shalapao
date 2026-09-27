@@ -1,9 +1,11 @@
 import {
   createPocket as repoCreatePocket,
   listPockets as repoListPockets,
+  updatePocket as repoUpdatePocket,
   type CreatePocketInput,
   type ListPocketsOptions,
-  type PocketWithBalance
+  type PocketWithBalance,
+  type UpdatePocketInput
 } from '../repositories/pocket.repository';
 
 // ⚠️ forwarder โดยตั้งใจ — v0 ไม่มีกฎธุรกิจของ pocket ที่ repository ไม่ได้ถือ
@@ -22,4 +24,13 @@ export function listPockets(
 
 export function createPocket(db: D1Database, userId: string, input: CreatePocketInput): Promise<PocketWithBalance> {
   return repoCreatePocket(db, userId, input);
+}
+
+export function updatePocket(
+  db: D1Database,
+  userId: string,
+  pocketId: string,
+  patch: UpdatePocketInput
+): Promise<PocketWithBalance> {
+  return repoUpdatePocket(db, userId, pocketId, patch);
 }

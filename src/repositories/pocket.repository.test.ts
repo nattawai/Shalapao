@@ -2,7 +2,7 @@ import { env } from 'cloudflare:test';
 import { beforeEach, describe, expect, test } from 'vitest';
 import { ForbiddenError } from '../domain/errors';
 import { newId, nowIso, today } from '../domain/id';
-import { createPocket, getPocket, listPockets } from './pocket.repository';
+import { createPocket, getPocket, listPockets, updatePocket } from './pocket.repository';
 
 const db = env.DB;
 
@@ -197,5 +197,50 @@ describe('กันข้อมูลรั่วข้ามผู้ใช้'
 
     const bobList = await listPockets(db, bob);
     expect(bobList.map((p) => p.name)).toEqual(['ของ Bob']);
+  });
+});
+
+// แก้ได้เฉพาะ name · sortOrder · categoryId — kind/parentId/lastReconciledAt ห้ามแก้
+describe('updatePocket', () => {
+  test('แก้ชื่อสำเร็จ อ่านกลับได้ค่าใหม่', async () => {
+    const p = await createPocket(db, alice, { name: 'ชื่อเก่า', kind: 'holds_balance' });
+    const updated = await updatePocket(db, alice, p.id, { name: 'ชื่อใหม่' });
+    expect(updated.name).toBe('ชื่อใหม่');
+    expect((await getPocket(db, alice, p.id))?.name).toBe('ชื่อใหม่');
+  });
+
+  test('แก้ sortOrder และ categoryId (ของตัวเอง) สำเร็จ', async () => {
+    const cat = await seedCategory(alice, 'อาหาร');
+    const p = await createPocket(db, alice, { name: 'p', kind: 'holds_balance' });
+    const updated = await updatePocket(db, alice, p.id, { sortOrder: 5, categoryId: cat });
+    expect(updated.sortOrder).toBe(5);
+    expect(updated.categoryId).toBe(cat);
+  });
+
+  // 🔴 categoryId รั่วแบบเดียวกับ createPocket — ใส่หมวดของคนอื่นไม่ได้
+  test('categoryId ของผู้ใช้อื่น → ForbiddenError', async () => {
+    const bobsCat = await seedCategory(bob, 'ของบ๊อบ');
+    const p = await createPocket(db, alice, { name: 'p', kind: 'holds_balance' });
+    await expect(updatePocket(db, alice, p.id, { categoryId: bobsCat })).rejects.toBeInstanceOf(ForbiddenError);
+  });
+
+  // 🔴 ข้อ 2.3 — ห้ามลบ ห้าม skip
+  test('ผู้ใช้ B แก้กระเป๋าของผู้ใช้ A ไม่ได้ → ForbiddenError · ชื่อไม่เปลี่ยน', async () => {
+    const p = await createPocket(db, alice, { name: 'ของ Alice', kind: 'holds_balance' });
+    await expect(updatePocket(db, bob, p.id, { name: 'แอบแก้' })).rejects.toBeInstanceOf(ForbiddenError);
+    expect((await getPocket(db, alice, p.id))?.name).toBe('ของ Alice');
+  });
+
+  test('แก้ชื่อไม่กระทบยอดและไม่กระทบ last_reconciled_at', async () => {
+    const p = await createPocket(db, alice, { name: 'p', kind: 'holds_balance' });
+    await insertEntry(p.id, alice, 350000);
+    await db.prepare('UPDATE pocket SET last_reconciled_at = ? WHERE id = ?').bind('2026-03-15', p.id).run();
+
+    await updatePocket(db, alice, p.id, { name: 'เปลี่ยนชื่อ' });
+
+    const after = await getPocket(db, alice, p.id);
+    expect(after?.name).toBe('เปลี่ยนชื่อ');
+    expect(after?.balanceSatang).toBe(350000);
+    expect(after?.lastReconciledAt).toBe('2026-03-15');
   });
 });

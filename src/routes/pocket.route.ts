@@ -2,8 +2,8 @@ import { Hono } from 'hono';
 import { ValidationError } from '../domain/errors';
 import type { AuthEnv } from '../middleware/auth';
 import { listEntries } from '../services/entry.service';
-import { createPocket, listPockets } from '../services/pocket.service';
-import { createPocketSchema, listPocketsQuerySchema } from './schemas/pocket.schema';
+import { createPocket, listPockets, updatePocket } from '../services/pocket.service';
+import { createPocketSchema, listPocketsQuerySchema, patchPocketSchema } from './schemas/pocket.schema';
 
 // userId มาจาก context ที่ auth middleware ยัดไว้ (token ที่ LINE เซ็น) — ไม่รับจาก client
 // balance ส่งเป็นสตางค์จำนวนเต็มตรง ๆ (มาจาก view) ไม่แปลงเป็นบาท — การแปลงเป็นงานแสดงผล
@@ -37,4 +37,19 @@ pocketRoutes.post('/', async (c) => {
     ...(parsed.sortOrder !== undefined ? { sortOrder: parsed.sortOrder } : {})
   });
   return c.json({ pocket }, 201);
+});
+
+// แก้กระเป๋า — เฉพาะ name/sortOrder/categoryId · conditional spread เพราะ exactOptionalPropertyTypes
+// (categoryId = null = ล้างหมวด · ต่างจาก undefined = ไม่แตะ) · repository ถือกฎสิทธิ์/ownership
+pocketRoutes.patch('/:id', async (c) => {
+  const body = await c.req.json().catch(() => {
+    throw new ValidationError('invalid_json', 'เนื้อหาคำขอต้องเป็น JSON');
+  });
+  const parsed = patchPocketSchema.parse(body);
+  const pocket = await updatePocket(c.env.DB, c.get('userId'), c.req.param('id'), {
+    ...(parsed.name !== undefined ? { name: parsed.name } : {}),
+    ...(parsed.sortOrder !== undefined ? { sortOrder: parsed.sortOrder } : {}),
+    ...(parsed.categoryId !== undefined ? { categoryId: parsed.categoryId } : {})
+  });
+  return c.json({ pocket });
 });

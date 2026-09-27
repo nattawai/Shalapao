@@ -245,3 +245,58 @@ export async function createPocket(
   if (!created) throw new Error('สร้างกระเป๋าแล้วอ่านกลับไม่เจอ — ไม่ควรเกิด');
   return created;
 }
+
+export type UpdatePocketInput = {
+  name?: string;
+  sortOrder?: number;
+  categoryId?: string | null;
+};
+
+// แก้ได้เฉพาะ name · sortOrder · categoryId · กรองผ่าน pocket_member ที่ active เหมือน query อื่น
+// (ไม่ใช่สมาชิก → ForbiddenError · ไม่มีแถวถูกแตะ) · categoryId ที่ส่งมาต้องเป็นของผู้ใช้คนเดียวกัน
+// (FK เช็คแค่ว่ามีแถว ไม่เช็คเจ้าของ) · ไม่แตะ kind (enum ระบบ) · parentId (มีกฎแยก) · last_reconciled_at
+export async function updatePocket(
+  db: D1Database,
+  userId: string,
+  pocketId: string,
+  patch: UpdatePocketInput
+): Promise<PocketWithBalance> {
+  const member = await db
+    .prepare('SELECT 1 AS ok FROM pocket_member WHERE pocket_id = ? AND user_id = ? AND left_at IS NULL')
+    .bind(pocketId, userId)
+    .first<{ ok: number }>();
+  if (!member) throw new ForbiddenError('pocket_forbidden', 'กระเป๋านี้ไม่ใช่ของคุณ — แก้ไม่ได้');
+
+  if (patch.categoryId != null) {
+    const owned = await db
+      .prepare('SELECT id FROM category WHERE id = ? AND user_id = ?')
+      .bind(patch.categoryId, userId)
+      .first<{ id: string }>();
+    if (!owned) {
+      throw new ForbiddenError('category_not_owned', 'หมวดที่เลือกไม่ใช่ของคุณ — เลือกหมวดของคุณเองหรือปล่อยว่าง');
+    }
+  }
+
+  // set เฉพาะ field ที่ส่งมา (undefined = ไม่แตะ · categoryId = null = ล้างหมวด)
+  const sets: string[] = [];
+  const binds: unknown[] = [];
+  if (patch.name !== undefined) {
+    sets.push('name = ?');
+    binds.push(patch.name);
+  }
+  if (patch.sortOrder !== undefined) {
+    sets.push('sort_order = ?');
+    binds.push(patch.sortOrder);
+  }
+  if (patch.categoryId !== undefined) {
+    sets.push('category_id = ?');
+    binds.push(patch.categoryId);
+  }
+  if (sets.length > 0) {
+    await db.prepare(`UPDATE pocket SET ${sets.join(', ')} WHERE id = ?`).bind(...binds, pocketId).run();
+  }
+
+  const updated = await getPocket(db, userId, pocketId);
+  if (!updated) throw new Error('แก้กระเป๋าแล้วอ่านกลับไม่เจอ — ไม่ควรเกิด');
+  return updated;
+}

@@ -1,13 +1,14 @@
 import { describe, expect, test, vi } from 'vitest';
 import * as pocketRepo from '../repositories/pocket.repository';
-import { createPocket, listPockets } from './pocket.service';
+import { createPocket, listPockets, updatePocket } from './pocket.service';
 
 // pocket.service เป็น forwarder — งานจริง (สิทธิ์ · ownership · balance จาก view) อยู่ที่
 // repository และการแปลง error เป็น HTTP อยู่ที่ route · test นี้ล็อกสัญญาว่า service
 // ส่ง argument ต่อโดยไม่แตะ ไม่กลืน error ที่ repo โยน
 vi.mock('../repositories/pocket.repository', () => ({
   listPockets: vi.fn(),
-  createPocket: vi.fn()
+  createPocket: vi.fn(),
+  updatePocket: vi.fn()
 }));
 
 const db = {} as D1Database;
@@ -26,6 +27,14 @@ describe('pocket.service (forwarder)', () => {
     const out = await createPocket(db, 'user-1', { name: 'เงินเก็บ', kind: 'holds_balance' });
     expect(pocketRepo.createPocket).toHaveBeenCalledWith(db, 'user-1', { name: 'เงินเก็บ', kind: 'holds_balance' });
     expect(out).toBe(created);
+  });
+
+  test('updatePocket ส่ง pocketId + patch ต่อ · คืนผลจาก repository ตรง ๆ', async () => {
+    const updated = { id: 'p3', name: 'ชื่อใหม่' };
+    vi.mocked(pocketRepo.updatePocket).mockResolvedValue(updated as never);
+    const out = await updatePocket(db, 'user-1', 'p3', { name: 'ชื่อใหม่' });
+    expect(pocketRepo.updatePocket).toHaveBeenCalledWith(db, 'user-1', 'p3', { name: 'ชื่อใหม่' });
+    expect(out).toBe(updated);
   });
 
   test('ไม่กลืน error ที่ repository โยน — ปล่อยผ่านให้ route แปลง', async () => {
