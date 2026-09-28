@@ -1,9 +1,11 @@
 # Spec — ยกเลิกการตรวจยอด (unreconcile)
 
-`2026-09-25` · สถานะ: **เคาะแล้ว พร้อมลงมือ** · ที่มา: [BACKLOG](../BACKLOG.md) §การตรวจยอด ข้อ 1
+`2026-09-25` · อัปเดต `2026-09-28` · สถานะ: **✅ ทำเสร็จแล้ว (PR #45)** · ที่มา: [BACKLOG](../BACKLOG.md) §การตรวจยอด ข้อ 1
 
 > **ข้อ 1 เคาะแล้ว 2026-09-25 → ทางเลือก ข (ตาราง `pocket_reconcile`)**
 > ก ตัดทิ้งเพราะพิสูจน์ได้ว่าประวัติขาด · ค ตัดทิ้งเพราะแก้ปัญหาผิดข้อ (ย้ายความกลัวไปอีกฝั่ง)
+>
+> **ยังไม่ได้ทำ: UI** — ข้อ 8 ในไฟล์นี้รอรอบแก้หน้าจอ (ชุด 2 ใน [ROADMAP](../ROADMAP.md))
 
 > เขียนก่อนลงมือโค้ด เพื่อให้คำถามที่ต้องหยุดถามกลางทาง ถูกถามจบตั้งแต่ตอนนี้
 
@@ -77,21 +79,46 @@ CREATE INDEX idx_reconcile_pocket
 
 ### Backfill
 
+🔴 **ฉบับแรกของ spec นี้เขียนผิด** — เขียน `<ULID ที่ generate ตอนรัน>` กับ `<nowIso()>` เป็น placeholder โดยลืมว่า **migration เป็น SQL ล้วน เรียกฟังก์ชัน TypeScript ไม่ได้** · Claude Code เจอตอนลงมือและหยุดถาม · เคาะกัน `2026-09-28`
+
 ```sql
 -- กระเป๋าที่มี last_reconciled_at อยู่แล้ว ต้องมีแถวตั้งต้น ไม่งั้นถอยไม่ได้
 INSERT INTO pocket_reconcile (id, pocket_id, reconciled_by, as_of_date,
                               expected_satang, actual_satang, adjustment_id,
                               previous_line, created_at)
 SELECT
-  <ULID ที่ generate ตอนรัน>, p.id,
+  lower(hex(randomblob(16))),
+  p.id,
   (SELECT user_id FROM pocket_member WHERE pocket_id = p.id AND left_at IS NULL LIMIT 1),
   p.last_reconciled_at,
-  0, 0, NULL, NULL, <nowIso()>
+  0, 0, NULL, NULL,
+  strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
 FROM pocket p
 WHERE p.last_reconciled_at IS NOT NULL;
 ```
 
-⚠️ `expected_satang` และ `actual_satang` ของแถว backfill **เป็น 0 ทั้งคู่เพราะไม่มีข้อมูลจริง** — ห้ามเอาไปแสดงบน UI ว่าเป็นยอดที่ยืนยัน · ถ้าจะแสดง "ตรวจยอดล่าสุด" ต้องเช็ค `adjustment_id IS NULL AND expected_satang = 0 AND actual_satang = 0` แล้วแสดงแค่วันที่
+**ทางเลือกที่ตัดทิ้งและเหตุผล**
+
+| | วิธี | ทำไมไม่เอา |
+|---|---|---|
+| ก | ไม่ backfill เลย (schema อย่างเดียว) | กระเป๋าที่เคยยืนยันยอดไว้จะ**มีเส้นปิดกั้นแต่ยกเลิกไม่ได้** (404) — คือปัญหาเดิมที่ฟีเจอร์นี้เกิดมาเพื่อแก้ |
+| ข | script แยกที่รันมือ | ของที่ต้องรันมือคือของที่วันหนึ่งจะลืมรัน · และ test harness รัน migration อย่างเดียว → **test จะไม่มีวันเห็นแถว backfill** |
+| **ค** | **`randomblob` ใน migration** ✅ | id ไม่ใช่ ULID จริง (ไม่เรียงตามเวลา) แต่แถวเหล่านี้ insert ทีละแถว ไม่ต้องพึ่ง id ในการเรียง |
+
+**เงื่อนไขสองข้อที่มาคู่กับทางเลือก ค**
+
+```
+1  ห้าม ORDER BY id กับตาราง pocket_reconcile
+   ใช้ ORDER BY as_of_date DESC, created_at DESC แทน
+   เหตุผล: แถว backfill ไม่ได้เรียงตามเวลา
+
+2  ต้องมี test พิสูจน์ว่าแถว backfill ถอยได้จริง
+   ตั้ง last_reconciled_at ตรง ๆ → รัน migration → unreconcile → เส้นต้องเป็น NULL
+```
+
+⚠️ `expected_satang` และ `actual_satang` ของแถว backfill **เป็น 0 ทั้งคู่เพราะไม่มีข้อมูลจริง ไม่ใช่เพราะยอดเป็น 0** — ห้ามแสดงบน UI ว่าเป็นยอดที่ยืนยัน
+
+**API คืน `isBackfill` มาให้แล้ว** คำนวณที่ `mapRow` จุดเดียว หน้าจอไม่ต้องเดาเอง — ถ้าปล่อยให้ UI คำนวณ กฎจะหลุดตอนมีหน้าจอที่สอง
 
 ---
 
