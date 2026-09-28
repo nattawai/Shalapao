@@ -235,3 +235,39 @@ describe('กระทบยอดวันเดิมซ้ำด้วยย�
     expect(pv.expectedSatang).toBe(100000);
   });
 });
+
+describe('unreconcile — GET/DELETE /api/pockets/:id/reconcile', () => {
+  const del = (user: string, id: string) => app.request(`/api/pockets/${id}/reconcile`, as(user, { method: 'DELETE' }), runEnv);
+  const getLast = (user: string, id: string) => app.request(`/api/pockets/${id}/reconcile`, as(user), runEnv);
+
+  test('GET ก่อนตรวจยอด → { reconcile: null }', async () => {
+    const p = await createPocket(alice, 'p');
+    const res = await getLast(alice, p);
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { reconcile: unknown }).reconcile).toBeNull();
+  });
+
+  test('ตรวจยอดแล้ว GET เห็นครั้งล่าสุด · DELETE ถอยได้ · ยอดกลับเดิม', async () => {
+    const p = await createPocket(alice, 'p');
+    await addEntry(alice, p, 100000, '2026-09-10');
+    await post(alice, p, { actualBalanceSatang: 105000, asOfDate: '2026-09-20' });
+
+    const got = await getLast(alice, p);
+    expect(((await got.json()) as { reconcile: { asOfDate: string } }).reconcile.asOfDate).toBe('2026-09-20');
+
+    expect((await del(alice, p)).status).toBe(200);
+    const pv = (await (await preview(alice, p, '2026-09-20')).json()) as { expectedSatang: number };
+    expect(pv.expectedSatang).toBe(100000); // adjustment ถูกลบ ยอดกลับเดิม
+  });
+
+  test('404 ยกเลิกทั้งที่ไม่เคยตรวจยอด', async () => {
+    const p = await createPocket(alice, 'p');
+    expect((await del(alice, p)).status).toBe(404);
+  });
+
+  test('403 ยกเลิกกระเป๋าของผู้ใช้อื่น', async () => {
+    const p = await createPocket(bob, 'ของบ๊อบ');
+    await post(bob, p, { actualBalanceSatang: 0, asOfDate: '2026-09-20' });
+    expect((await del(alice, p)).status).toBe(403);
+  });
+});

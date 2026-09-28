@@ -61,6 +61,31 @@ export async function getLastReconcile(db: D1Database, userId: string, pocketId:
   return row ? mapRow(row) : null;
 }
 
+// กระเป๋าแม่ชั้นใดที่ "ปิดคลุม" วัน asOfDate ที่จะยกเลิก (last_reconciled_at >= asOfDate)
+// ถ้ามี = ยกเลิกลูกไม่ได้ ต้องยกเลิกแม่ก่อน (จากบนลงล่าง) — ไม่งั้นลงรายการย้อนหลังในลูกได้
+// แล้ว rollup ของแม่ ณ วันที่แม่ยืนยันจะเปลี่ยน · คืน "ชั้นบนสุด" (ancestor ที่มีบรรพบุรุษน้อยสุด)
+// เพราะต้องยกเลิกจากบนสุดก่อน · ไม่กรอง member เพราะเป็นด่าน integrity (เหมือน assertNotReconciled)
+export async function findLockingAncestor(
+  db: D1Database,
+  pocketId: string,
+  asOfDate: string
+): Promise<{ name: string; lastReconciledAt: string } | null> {
+  const row = await db
+    .prepare(
+      `SELECT anc.name AS name, anc.last_reconciled_at AS line
+       FROM pocket_subtree st
+       JOIN pocket anc ON anc.id = st.root_id
+       WHERE st.node_id = ? AND st.root_id <> ?
+         AND anc.last_reconciled_at IS NOT NULL
+         AND anc.last_reconciled_at >= ?
+       ORDER BY (SELECT COUNT(*) FROM pocket_subtree s2 WHERE s2.node_id = anc.id) ASC
+       LIMIT 1`
+    )
+    .bind(pocketId, pocketId, asOfDate)
+    .first<{ name: string; line: string }>();
+  return row ? { name: row.name, lastReconciledAt: row.line } : null;
+}
+
 // ยกเลิกการตรวจยอดหนึ่งครั้ง — batch เดียว (all-or-nothing):
 //   cancelled_at ที่แถวประวัติ · soft delete รายการปรับ (ถ้ามี) · คืนเส้นเป็น previous_line (NULL ได้)
 // กรองผ่าน pocket_member เอง (ด่านชดเชย) · previous_line/adjustment_id อ่านจากแถวตรง ๆ ไม่คำนวณ
