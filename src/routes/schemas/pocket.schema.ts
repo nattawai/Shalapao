@@ -25,3 +25,9 @@ export const patchPocketSchema = z
 export const listPocketsQuerySchema = z.object({
   includeArchived: z.enum(['true', 'false']).optional()
 });
+
+// subtree=1 = รวมรายการของลูกทุกชั้น · ไม่ส่ง/subtree=0 = เฉพาะกระเป๋านี้ (พฤติกรรมเดิม)
+// enum จำกัดค่าเพื่อให้ค่าพิมพ์ผิด (subtree=yes) ได้ 400 ไม่ใช่ตกไปพฤติกรรมเดิมเงียบ ๆ
+export const listEntriesQuerySchema = z.object({
+  subtree: z.enum(['0', '1']).optional()
+});
