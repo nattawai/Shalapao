@@ -12,6 +12,9 @@ export type ReconcileRecord = {
   previousLine: string | null;
   cancelledAt: string | null;
   createdAt: string;
+  // แถว backfill มี expected/actual = 0 เพราะ "ไม่มีข้อมูลจริง" ไม่ใช่เพราะยอดเป็น 0 —
+  // หน้าจอต้องแสดงแค่วันที่ ห้ามแสดงยอด · ให้ repository ตัดสิน ไม่งั้นกฎหลุดไปอยู่ฝั่ง UI
+  isBackfill: boolean;
 };
 
 type ReconcileRow = {
@@ -38,7 +41,8 @@ function mapRow(row: ReconcileRow): ReconcileRecord {
     adjustmentId: row.adjustment_id,
     previousLine: row.previous_line,
     cancelledAt: row.cancelled_at,
-    createdAt: row.created_at
+    createdAt: row.created_at,
+    isBackfill: row.adjustment_id === null && row.expected_satang === 0 && row.actual_satang === 0
   };
 }
 

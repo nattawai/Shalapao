@@ -2,7 +2,7 @@ import { env } from 'cloudflare:test';
 import { Hono } from 'hono';
 import { beforeEach, describe, expect, test } from 'vitest';
 import type { Env } from '../../src/config';
-import { newId, today } from '../../src/domain/id';
+import { newId, nowIso, today } from '../../src/domain/id';
 import { authMiddleware, type AuthEnv } from '../../src/middleware/auth';
 import { upsertUserByLineId } from '../../src/repositories/app-user.repository';
 import { entryRoutes } from '../../src/routes/entry.route';
@@ -269,5 +269,33 @@ describe('unreconcile — GET/DELETE /api/pockets/:id/reconcile', () => {
     const p = await createPocket(bob, 'ของบ๊อบ');
     await post(bob, p, { actualBalanceSatang: 0, asOfDate: '2026-09-20' });
     expect((await del(alice, p)).status).toBe(403);
+  });
+});
+
+describe('isBackfill flag บน GET /api/pockets/:id/reconcile', () => {
+  const getLast = (user: string, id: string) => app.request(`/api/pockets/${id}/reconcile`, as(user), runEnv);
+
+  test('แถว backfill (expected/actual = 0 · ไม่มี adjustment) → isBackfill = true', async () => {
+    const p = await createPocket(alice, 'p');
+    // จำลองแถว backfill (แบบเดียวกับ migration 0009) — ไม่มีข้อมูลจริง
+    await db
+      .prepare(
+        `INSERT INTO pocket_reconcile (id, pocket_id, reconciled_by, as_of_date, expected_satang, actual_satang, adjustment_id, previous_line, created_at)
+         VALUES (?, ?, (SELECT id FROM app_user WHERE line_user_id = ?), ?, 0, 0, NULL, NULL, ?)`
+      )
+      .bind(newId(), p, alice, '2026-09-20', nowIso())
+      .run();
+
+    const res = await getLast(alice, p);
+    expect(((await res.json()) as { reconcile: { isBackfill: boolean } }).reconcile.isBackfill).toBe(true);
+  });
+
+  test('ตรวจยอดผ่านแอปจริง (ส่วนต่าง ≠ 0) → isBackfill = false', async () => {
+    const p = await createPocket(alice, 'p');
+    await addEntry(alice, p, 100000, '2026-09-10');
+    await post(alice, p, { actualBalanceSatang: 105000, asOfDate: '2026-09-20' }); // diff +5000 → มี adjustment
+
+    const res = await getLast(alice, p);
+    expect(((await res.json()) as { reconcile: { isBackfill: boolean } }).reconcile.isBackfill).toBe(false);
   });
 });
