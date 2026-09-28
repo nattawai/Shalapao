@@ -161,6 +161,45 @@ export async function listEntries(db: D1Database, userId: string, pocketId: stri
   return results.map(mapRow);
 }
 
+export type UpdateEntryLabelsInput = { note?: string | null; categoryId?: string | null };
+
+// PATCH ป้ายเท่านั้น — แก้ได้แค่ note, categoryId (UPDATE แถวเดิม) · ประทับ updated_at
+// 🔴 ไม่แตะ amount_satang/occurred_on/pocket_id เด็ดขาด · จึงทำได้แม้ในงวดที่กระทบยอดแล้ว
+// (ไม่แตะตัวเลข/วัน → ยอดที่ยืนยันไม่เปลี่ยน) · ติดหมวดย้อนหลังกับข้อมูลเก่าได้เพื่อ dashboard
+export async function updateEntryLabels(
+  db: D1Database,
+  userId: string,
+  entryId: string,
+  patch: UpdateEntryLabelsInput
+): Promise<Entry> {
+  const row = await db
+    .prepare('SELECT pocket_id, deleted_at FROM entry WHERE id = ?')
+    .bind(entryId)
+    .first<{ pocket_id: string; deleted_at: string | null }>();
+  if (!row) throw new NotFoundError('entry_not_found', 'ไม่พบรายการนี้');
+  await assertMember(db, userId, row.pocket_id); // ไม่ใช่สมาชิก → ForbiddenError (แถวยังอยู่)
+  if (row.deleted_at !== null) throw new NotFoundError('entry_not_found', 'ไม่พบรายการนี้ (ถูกลบไปแล้ว)');
+  if (patch.categoryId != null) await assertOwnsCategory(db, userId, patch.categoryId);
+
+  const sets: string[] = [];
+  const binds: unknown[] = [];
+  if (patch.note !== undefined) {
+    sets.push('note = ?');
+    binds.push(patch.note);
+  }
+  if (patch.categoryId !== undefined) {
+    sets.push('category_id = ?');
+    binds.push(patch.categoryId);
+  }
+  sets.push('updated_at = ?');
+  binds.push(nowIso());
+  await db.prepare(`UPDATE entry SET ${sets.join(', ')} WHERE id = ?`).bind(...binds, entryId).run();
+
+  const updated = await getEntry(db, userId, entryId);
+  if (!updated) throw new Error('แก้ป้ายรายการแล้วอ่านกลับไม่เจอ — ไม่ควรเกิด');
+  return updated;
+}
+
 export async function createEntry(db: D1Database, userId: string, input: CreateEntryInput): Promise<Entry> {
   await assertMember(db, userId, input.pocketId);
   if (input.categoryId != null) await assertOwnsCategory(db, userId, input.categoryId);
@@ -270,4 +309,58 @@ export async function deleteEntry(db: D1Database, userId: string, entryId: strin
     await assertDeletableInOpenPeriod(db, leg.pocket_id, leg.occurred_on);
   }
   await db.batch(legs.results.map((leg) => db.prepare('UPDATE entry SET deleted_at = ? WHERE id = ?').bind(now, leg.id)));
+}
+
+export type ReplaceEntryInput = {
+  pocketId: string;
+  amountSatang: number;
+  occurredOn: string;
+  note?: string | null;
+  categoryId?: string | null;
+};
+
+// แก้ยอด/วัน/กระเป๋า = soft delete แถวเดิม + สร้างแถวใหม่ ใน batch เดียว (ไม่แก้ตัวเลขแถวเดิม
+// เลย — เก็บร่องรอยไว้) · 🔴 เช็ค assertNotReconciled สองครั้ง: แถวเดิม (กระเป๋า+วันเดิม) เพราะการ
+// ลบมันกระทบยอดของงวดที่ตรวจแล้ว · แถวใหม่ (กระเป๋า+วันใหม่) เพราะเป็นการลงรายการใหม่
+// ขาโยกเงิน (transfer_id) แก้ทางนี้ไม่ได้ — input รายเดียวอธิบายคู่โยกไม่ได้ · ให้ลบแล้วโยกใหม่
+export async function replaceEntry(
+  db: D1Database,
+  userId: string,
+  entryId: string,
+  input: ReplaceEntryInput
+): Promise<Entry> {
+  const row = await db
+    .prepare('SELECT pocket_id, transfer_id, occurred_on, deleted_at FROM entry WHERE id = ?')
+    .bind(entryId)
+    .first<{ pocket_id: string; transfer_id: string | null; occurred_on: string; deleted_at: string | null }>();
+  if (!row) throw new NotFoundError('entry_not_found', 'ไม่พบรายการนี้');
+  await assertMember(db, userId, row.pocket_id); // สิทธิ์กระเป๋าเดิม
+  if (row.deleted_at !== null) throw new NotFoundError('entry_not_found', 'ไม่พบรายการนี้ (ถูกลบไปแล้ว)');
+  if (row.transfer_id !== null) {
+    throw new ValidationError(
+      'transfer_not_replaceable',
+      'รายการนี้เป็นการโยกเงิน แก้ยอด/วัน/กระเป๋าตรง ๆ ไม่ได้ — ลบแล้วโยกใหม่'
+    );
+  }
+  await assertMember(db, userId, input.pocketId); // สิทธิ์กระเป๋าใหม่ (เผื่อย้ายกระเป๋า)
+  if (input.categoryId != null) await assertOwnsCategory(db, userId, input.categoryId);
+
+  await assertNotReconciled(db, row.pocket_id, row.occurred_on); // ลบแถวเดิมกระทบงวดเดิม
+  await assertNotReconciled(db, input.pocketId, input.occurredOn); // แถวใหม่ลงงวดใหม่
+
+  const now = nowIso();
+  const newRowId = newId();
+  await db.batch([
+    db.prepare('UPDATE entry SET deleted_at = ? WHERE id = ?').bind(now, entryId),
+    db
+      .prepare(
+        `INSERT INTO entry (id, pocket_id, created_by_user_id, amount_satang, occurred_on, category_id, note, source, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'manual', ?)`
+      )
+      .bind(newRowId, input.pocketId, userId, input.amountSatang, input.occurredOn, input.categoryId ?? null, input.note ?? null, now)
+  ]);
+
+  const created = await getEntry(db, userId, newRowId);
+  if (!created) throw new Error('แก้รายการแล้วอ่านกลับไม่เจอ — ไม่ควรเกิด');
+  return created;
 }

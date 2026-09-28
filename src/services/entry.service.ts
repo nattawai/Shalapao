@@ -3,9 +3,13 @@ import {
   createTransfer as repoCreateTransfer,
   deleteEntry as repoDeleteEntry,
   listEntries as repoListEntries,
+  replaceEntry as repoReplaceEntry,
+  updateEntryLabels as repoUpdateEntryLabels,
   type CreateEntryInput,
   type CreateTransferInput,
-  type Entry
+  type Entry,
+  type ReplaceEntryInput,
+  type UpdateEntryLabelsInput
 } from '../repositories/entry.repository';
 
 // ⚠️ forwarder โดยตั้งใจ — invariant ทั้งหมด (append-only · งวดกระทบยอด · amount>0 ·
@@ -31,4 +35,22 @@ export function listEntries(db: D1Database, userId: string, pocketId: string): P
 
 export function deleteEntry(db: D1Database, userId: string, entryId: string): Promise<void> {
   return repoDeleteEntry(db, userId, entryId);
+}
+
+export function updateEntryLabels(
+  db: D1Database,
+  userId: string,
+  entryId: string,
+  patch: UpdateEntryLabelsInput
+): Promise<Entry> {
+  return repoUpdateEntryLabels(db, userId, entryId, patch);
+}
+
+export function replaceEntry(
+  db: D1Database,
+  userId: string,
+  entryId: string,
+  input: ReplaceEntryInput
+): Promise<Entry> {
+  return repoReplaceEntry(db, userId, entryId, input);
 }

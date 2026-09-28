@@ -21,6 +21,26 @@ export const createEntrySchema = z
   })
   .strict();
 
+// PATCH ป้ายเท่านั้น — .strict() ปฏิเสธ amountSatang/occurredOn/pocketId ที่ห้ามแก้ทางนี้ → 400
+// note/categoryId ตั้ง null เพื่อล้างได้
+export const patchEntrySchema = z
+  .object({
+    note: note.nullable().optional(),
+    categoryId: z.string().min(1).nullable().optional()
+  })
+  .strict();
+
+// replace = แก้ยอด/วัน/กระเป๋า (ระบุครบ) · soft delete เก่า + สร้างใหม่ที่ repository
+export const replaceEntrySchema = z
+  .object({
+    pocketId: z.string().min(1),
+    amountSatang: amountInt.refine((n) => n !== 0, 'จำนวนเงินต้องไม่เป็น 0 (บวก = เงินเข้า, ลบ = เงินออก)'),
+    occurredOn,
+    note: note.nullable().optional(),
+    categoryId: z.string().min(1).nullable().optional()
+  })
+  .strict();
+
 export const createTransferSchema = z
   .object({
     fromPocketId: z.string().min(1),

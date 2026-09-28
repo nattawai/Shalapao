@@ -216,3 +216,51 @@ describe('GET /api/pockets/:id/entries', () => {
     expect(((await res.json()) as { entries: unknown[] }).entries).toEqual([]);
   });
 });
+
+describe('PATCH /api/entries/:id (ป้าย)', () => {
+  test('200 แก้ note ในงวดที่กระทบยอดแล้ว (ไม่แตะตัวเลข/วัน)', async () => {
+    const p = await createPocket(alice, 'p');
+    const id = await entryId(await post(alice, '/api/entries', { pocketId: p, amountSatang: 100, occurredOn: '2026-03-10' }));
+    await db.prepare('UPDATE pocket SET last_reconciled_at = ? WHERE id = ?').bind('2026-03-15', p).run();
+    const res = await app.request(`/api/entries/${id}`, as(alice, { method: 'PATCH', body: JSON.stringify({ note: 'ติดหมวดย้อนหลัง' }) }), runEnv);
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { entry: { note: string } }).entry.note).toBe('ติดหมวดย้อนหลัง');
+  });
+
+  test('400 ส่ง amountSatang มาด้วย (field ไม่รู้จัก · strict)', async () => {
+    const p = await createPocket(alice, 'p');
+    const id = await entryId(await post(alice, '/api/entries', { pocketId: p, amountSatang: 100 }));
+    const res = await app.request(`/api/entries/${id}`, as(alice, { method: 'PATCH', body: JSON.stringify({ note: 'x', amountSatang: 999 }) }), runEnv);
+    expect(res.status).toBe(400);
+  });
+});
+
+describe('POST /api/entries/:id/replace (ยอด/วัน/กระเป๋า)', () => {
+  const replace = (user: string, id: string, body: unknown) =>
+    app.request(`/api/entries/${id}/replace`, as(user, { method: 'POST', body: JSON.stringify(body) }), runEnv);
+
+  test('200 replace ยอดในงวดเปิด · แถวใหม่ยอดใหม่', async () => {
+    const p = await createPocket(alice, 'p');
+    const id = await entryId(await post(alice, '/api/entries', { pocketId: p, amountSatang: -50000, occurredOn: '2026-03-10' }));
+    const res = await replace(alice, id, { pocketId: p, amountSatang: -5000, occurredOn: '2026-03-10' });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { entry: { amountSatang: number } }).entry.amountSatang).toBe(-5000);
+  });
+
+  test('409 ย้ายวันเข้าไปในงวดที่กระทบยอดแล้ว', async () => {
+    const p = await createPocket(alice, 'p');
+    const id = await entryId(await post(alice, '/api/entries', { pocketId: p, amountSatang: 100, occurredOn: '2026-03-20' }));
+    await db.prepare('UPDATE pocket SET last_reconciled_at = ? WHERE id = ?').bind('2026-03-15', p).run();
+    expect((await replace(alice, id, { pocketId: p, amountSatang: 100, occurredOn: '2026-03-12' })).status).toBe(409);
+  });
+
+  test('400 replace ขาโยกเงิน (ให้ลบแล้วโยกใหม่)', async () => {
+    const from = await createPocket(alice, 'from');
+    const to = await createPocket(alice, 'to');
+    const tRes = await post(alice, '/api/transfers', { fromPocketId: from, toPocketId: to, amountSatang: 30000 });
+    const outId = ((await tRes.json()) as { outflow: { id: string } }).outflow.id;
+    const res = await replace(alice, outId, { pocketId: from, amountSatang: -40000, occurredOn: '2026-03-10' });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toBe('transfer_not_replaceable');
+  });
+});
