@@ -3,10 +3,12 @@ import {
   createTransfer as repoCreateTransfer,
   deleteEntry as repoDeleteEntry,
   listEntries as repoListEntries,
+  replaceEntry as repoReplaceEntry,
   updateEntryLabels as repoUpdateEntryLabels,
   type CreateEntryInput,
   type CreateTransferInput,
   type Entry,
+  type ReplaceEntryInput,
   type UpdateEntryLabelsInput
 } from '../repositories/entry.repository';
 
@@ -42,4 +44,13 @@ export function updateEntryLabels(
   patch: UpdateEntryLabelsInput
 ): Promise<Entry> {
   return repoUpdateEntryLabels(db, userId, entryId, patch);
+}
+
+export function replaceEntry(
+  db: D1Database,
+  userId: string,
+  entryId: string,
+  input: ReplaceEntryInput
+): Promise<Entry> {
+  return repoReplaceEntry(db, userId, entryId, input);
 }

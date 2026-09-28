@@ -310,3 +310,57 @@ export async function deleteEntry(db: D1Database, userId: string, entryId: strin
   }
   await db.batch(legs.results.map((leg) => db.prepare('UPDATE entry SET deleted_at = ? WHERE id = ?').bind(now, leg.id)));
 }
+
+export type ReplaceEntryInput = {
+  pocketId: string;
+  amountSatang: number;
+  occurredOn: string;
+  note?: string | null;
+  categoryId?: string | null;
+};
+
+// แก้ยอด/วัน/กระเป๋า = soft delete แถวเดิม + สร้างแถวใหม่ ใน batch เดียว (ไม่แก้ตัวเลขแถวเดิม
+// เลย — เก็บร่องรอยไว้) · 🔴 เช็ค assertNotReconciled สองครั้ง: แถวเดิม (กระเป๋า+วันเดิม) เพราะการ
+// ลบมันกระทบยอดของงวดที่ตรวจแล้ว · แถวใหม่ (กระเป๋า+วันใหม่) เพราะเป็นการลงรายการใหม่
+// ขาโยกเงิน (transfer_id) แก้ทางนี้ไม่ได้ — input รายเดียวอธิบายคู่โยกไม่ได้ · ให้ลบแล้วโยกใหม่
+export async function replaceEntry(
+  db: D1Database,
+  userId: string,
+  entryId: string,
+  input: ReplaceEntryInput
+): Promise<Entry> {
+  const row = await db
+    .prepare('SELECT pocket_id, transfer_id, occurred_on, deleted_at FROM entry WHERE id = ?')
+    .bind(entryId)
+    .first<{ pocket_id: string; transfer_id: string | null; occurred_on: string; deleted_at: string | null }>();
+  if (!row) throw new NotFoundError('entry_not_found', 'ไม่พบรายการนี้');
+  await assertMember(db, userId, row.pocket_id); // สิทธิ์กระเป๋าเดิม
+  if (row.deleted_at !== null) throw new NotFoundError('entry_not_found', 'ไม่พบรายการนี้ (ถูกลบไปแล้ว)');
+  if (row.transfer_id !== null) {
+    throw new ValidationError(
+      'transfer_not_replaceable',
+      'รายการนี้เป็นการโยกเงิน แก้ยอด/วัน/กระเป๋าตรง ๆ ไม่ได้ — ลบแล้วโยกใหม่'
+    );
+  }
+  await assertMember(db, userId, input.pocketId); // สิทธิ์กระเป๋าใหม่ (เผื่อย้ายกระเป๋า)
+  if (input.categoryId != null) await assertOwnsCategory(db, userId, input.categoryId);
+
+  await assertNotReconciled(db, row.pocket_id, row.occurred_on); // ลบแถวเดิมกระทบงวดเดิม
+  await assertNotReconciled(db, input.pocketId, input.occurredOn); // แถวใหม่ลงงวดใหม่
+
+  const now = nowIso();
+  const newRowId = newId();
+  await db.batch([
+    db.prepare('UPDATE entry SET deleted_at = ? WHERE id = ?').bind(now, entryId),
+    db
+      .prepare(
+        `INSERT INTO entry (id, pocket_id, created_by_user_id, amount_satang, occurred_on, category_id, note, source, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'manual', ?)`
+      )
+      .bind(newRowId, input.pocketId, userId, input.amountSatang, input.occurredOn, input.categoryId ?? null, input.note ?? null, now)
+  ]);
+
+  const created = await getEntry(db, userId, newRowId);
+  if (!created) throw new Error('แก้รายการแล้วอ่านกลับไม่เจอ — ไม่ควรเกิด');
+  return created;
+}

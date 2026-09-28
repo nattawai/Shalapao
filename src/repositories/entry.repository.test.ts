@@ -2,7 +2,7 @@ import { env } from 'cloudflare:test';
 import { beforeEach, describe, expect, test } from 'vitest';
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../domain/errors';
 import { newId, nowIso, today } from '../domain/id';
-import { createEntry, createTransfer, deleteEntry, getEntry, listEntries, updateEntryLabels } from './entry.repository';
+import { createEntry, createTransfer, deleteEntry, getEntry, listEntries, replaceEntry, updateEntryLabels } from './entry.repository';
 
 const db = env.DB;
 
@@ -399,5 +399,69 @@ describe('updateEntryLabels (PATCH — ป้ายเท่านั้น)', (
     const e = await createEntry(db, alice, { pocketId: alicePocket, amountSatang: 100 });
     await deleteEntry(db, alice, e.id);
     await expect(updateEntryLabels(db, alice, e.id, { note: 'x' })).rejects.toBeInstanceOf(NotFoundError);
+  });
+});
+
+// replace = แก้ยอด/วัน/กระเป๋า · soft delete แถวเดิม + สร้างแถวใหม่ ใน batch เดียว
+// 🔴 เช็คงวดปิดสองครั้ง: แถวเดิม (วันเดิม) และแถวใหม่ (วันใหม่) — ลบของวันเก่าก็กระทบยอดที่ตรวจแล้ว
+describe('replaceEntry (ยอด/วัน/กระเป๋า)', () => {
+  test('replace ยอดในงวดเปิด → เก่า soft delete · ใหม่ยอดใหม่ · ยอดรวมถูก', async () => {
+    const e = await createEntry(db, alice, { pocketId: alicePocket, amountSatang: -50000, occurredOn: '2026-03-10', note: 'พิมพ์ผิด' });
+    const replaced = await replaceEntry(db, alice, e.id, { pocketId: alicePocket, amountSatang: -5000, occurredOn: '2026-03-10' });
+
+    expect(replaced.id).not.toBe(e.id);
+    expect(replaced.amountSatang).toBe(-5000);
+    expect(await getEntry(db, alice, e.id)).toBeNull(); // เก่าถูกลบ (soft)
+    expect(await balanceOf(alicePocket)).toBe(-5000);
+    const old = await db.prepare('SELECT deleted_at FROM entry WHERE id = ?').bind(e.id).first<{ deleted_at: string | null }>();
+    expect(old?.deleted_at).not.toBeNull();
+  });
+
+  test('ย้ายวันออกจากงวดที่กระทบยอดแล้ว → 409 · ไม่มีอะไรเปลี่ยน', async () => {
+    const e = await createEntry(db, alice, { pocketId: alicePocket, amountSatang: 100, occurredOn: '2026-03-10' });
+    await reconcilePocket(alicePocket, '2026-03-15'); // เส้นคลุมวันเก่า (03-10)
+    const before = await countEntries();
+    await expect(
+      replaceEntry(db, alice, e.id, { pocketId: alicePocket, amountSatang: 100, occurredOn: '2026-03-20' })
+    ).rejects.toBeInstanceOf(ConflictError);
+    expect(await countEntries()).toBe(before);
+    expect(await getEntry(db, alice, e.id)).not.toBeNull();
+  });
+
+  test('ย้ายวันเข้าไปในงวดที่กระทบยอดแล้ว → 409', async () => {
+    const e = await createEntry(db, alice, { pocketId: alicePocket, amountSatang: 100, occurredOn: '2026-03-20' });
+    await reconcilePocket(alicePocket, '2026-03-15'); // วันเก่า 03-20 นอกงวด (ผ่าน) · ย้ายไป 03-12 (ในงวด → ล้ม)
+    await expect(
+      replaceEntry(db, alice, e.id, { pocketId: alicePocket, amountSatang: 100, occurredOn: '2026-03-12' })
+    ).rejects.toBeInstanceOf(ConflictError);
+  });
+
+  // 🔴 batch atomic: ยอดใหม่ = 0 ผิด CHECK → INSERT ล้ม → UPDATE (ลบเก่า) ต้อง roll back ด้วย
+  test('batch ล้มกลางคัน → ไม่มีอะไรเปลี่ยนสักอย่าง', async () => {
+    const e = await createEntry(db, alice, { pocketId: alicePocket, amountSatang: 100, occurredOn: '2026-03-10' });
+    const before = await countEntries();
+    await expect(
+      replaceEntry(db, alice, e.id, { pocketId: alicePocket, amountSatang: 0, occurredOn: '2026-03-10' })
+    ).rejects.toThrow();
+    expect(await countEntries()).toBe(before);
+    expect(await getEntry(db, alice, e.id)).not.toBeNull(); // เก่าไม่ถูกลบ
+  });
+
+  // 🔴 ข้อ 2.3 — ห้ามลบ ห้าม skip
+  test('ผู้ใช้ B replace รายการของ A ไม่ได้ → ForbiddenError', async () => {
+    const e = await createEntry(db, bob, { pocketId: bobPocket, amountSatang: 100 });
+    await expect(
+      replaceEntry(db, alice, e.id, { pocketId: bobPocket, amountSatang: 200, occurredOn: '2026-03-10' })
+    ).rejects.toBeInstanceOf(ForbiddenError);
+  });
+
+  test('ขาโยกเงิน replace ไม่ได้ → ValidationError · ไม่มีอะไรเปลี่ยน', async () => {
+    const dest = await seedPocket(alice);
+    const { outflow } = await createTransfer(db, alice, { fromPocketId: alicePocket, toPocketId: dest, amountSatang: 30000, occurredOn: '2026-03-02' });
+    const before = await countEntries();
+    await expect(
+      replaceEntry(db, alice, outflow.id, { pocketId: alicePocket, amountSatang: -40000, occurredOn: '2026-03-02' })
+    ).rejects.toBeInstanceOf(ValidationError);
+    expect(await countEntries()).toBe(before);
   });
 });

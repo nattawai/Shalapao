@@ -1,8 +1,8 @@
 import { Hono } from 'hono';
 import { ValidationError } from '../domain/errors';
 import type { AuthEnv } from '../middleware/auth';
-import { createEntry, createTransfer, deleteEntry, updateEntryLabels } from '../services/entry.service';
-import { createEntrySchema, createTransferSchema, patchEntrySchema } from './schemas/entry.schema';
+import { createEntry, createTransfer, deleteEntry, replaceEntry, updateEntryLabels } from '../services/entry.service';
+import { createEntrySchema, createTransferSchema, patchEntrySchema, replaceEntrySchema } from './schemas/entry.schema';
 
 // occurredOn ที่ไม่ส่งมา ปล่อย undefined ลงไปถึง repository — repository ใส่ today()
 // (Asia/Bangkok) ให้เอง ห้ามคำนวณวันที่ซ้ำที่นี่ · conditional spread เพราะ
@@ -32,6 +32,22 @@ entryRoutes.patch('/:id', async (c) => {
   });
   const parsed = patchEntrySchema.parse(body);
   const entry = await updateEntryLabels(c.env.DB, c.get('userId'), c.req.param('id'), {
+    ...(parsed.note !== undefined ? { note: parsed.note } : {}),
+    ...(parsed.categoryId !== undefined ? { categoryId: parsed.categoryId } : {})
+  });
+  return c.json({ entry });
+});
+
+// replace = แก้ยอด/วัน/กระเป๋า (soft delete เก่า + สร้างใหม่) · ตอบแถวใหม่ · ขาโยกเงิน → 400
+entryRoutes.post('/:id/replace', async (c) => {
+  const body = await c.req.json().catch(() => {
+    throw new ValidationError('invalid_json', 'เนื้อหาคำขอต้องเป็น JSON');
+  });
+  const parsed = replaceEntrySchema.parse(body);
+  const entry = await replaceEntry(c.env.DB, c.get('userId'), c.req.param('id'), {
+    pocketId: parsed.pocketId,
+    amountSatang: parsed.amountSatang,
+    occurredOn: parsed.occurredOn,
     ...(parsed.note !== undefined ? { note: parsed.note } : {}),
     ...(parsed.categoryId !== undefined ? { categoryId: parsed.categoryId } : {})
   });
