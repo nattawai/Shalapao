@@ -216,3 +216,21 @@ describe('GET /api/pockets/:id/entries', () => {
     expect(((await res.json()) as { entries: unknown[] }).entries).toEqual([]);
   });
 });
+
+describe('PATCH /api/entries/:id (ป้าย)', () => {
+  test('200 แก้ note ในงวดที่กระทบยอดแล้ว (ไม่แตะตัวเลข/วัน)', async () => {
+    const p = await createPocket(alice, 'p');
+    const id = await entryId(await post(alice, '/api/entries', { pocketId: p, amountSatang: 100, occurredOn: '2026-03-10' }));
+    await db.prepare('UPDATE pocket SET last_reconciled_at = ? WHERE id = ?').bind('2026-03-15', p).run();
+    const res = await app.request(`/api/entries/${id}`, as(alice, { method: 'PATCH', body: JSON.stringify({ note: 'ติดหมวดย้อนหลัง' }) }), runEnv);
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { entry: { note: string } }).entry.note).toBe('ติดหมวดย้อนหลัง');
+  });
+
+  test('400 ส่ง amountSatang มาด้วย (field ไม่รู้จัก · strict)', async () => {
+    const p = await createPocket(alice, 'p');
+    const id = await entryId(await post(alice, '/api/entries', { pocketId: p, amountSatang: 100 }));
+    const res = await app.request(`/api/entries/${id}`, as(alice, { method: 'PATCH', body: JSON.stringify({ note: 'x', amountSatang: 999 }) }), runEnv);
+    expect(res.status).toBe(400);
+  });
+});

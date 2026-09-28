@@ -2,7 +2,7 @@ import { env } from 'cloudflare:test';
 import { beforeEach, describe, expect, test } from 'vitest';
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../domain/errors';
 import { newId, nowIso, today } from '../domain/id';
-import { createEntry, createTransfer, deleteEntry, getEntry, listEntries } from './entry.repository';
+import { createEntry, createTransfer, deleteEntry, getEntry, listEntries, updateEntryLabels } from './entry.repository';
 
 const db = env.DB;
 
@@ -361,5 +361,43 @@ describe('createTransfer — ปฏิเสธ input ที่ทำ ledger พ
       createTransfer(db, alice, { fromPocketId: alicePocket, toPocketId: alicePocket, amountSatang: 100 })
     ).rejects.toBeInstanceOf(ValidationError);
     expect(await countEntries()).toBe(before);
+  });
+});
+
+// PATCH ป้ายเท่านั้น (note, categoryId) — UPDATE แถวเดิม · ไม่แตะ amount/occurred_on/pocket
+// จึงแก้ได้แม้ในงวดที่กระทบยอดแล้ว (ติดหมวดย้อนหลังสำหรับ dashboard ในอนาคต)
+describe('updateEntryLabels (PATCH — ป้ายเท่านั้น)', () => {
+  test('แก้ note ได้ · ประทับ updated_at · ไม่แตะ amount/occurred_on', async () => {
+    const e = await createEntry(db, alice, { pocketId: alicePocket, amountSatang: -6100, occurredOn: '2026-03-10', note: 'เก่า' });
+    const updated = await updateEntryLabels(db, alice, e.id, { note: 'ใหม่' });
+    expect(updated.note).toBe('ใหม่');
+    expect(updated.amountSatang).toBe(-6100);
+    expect(updated.occurredOn).toBe('2026-03-10');
+    expect(updated.updatedAt).not.toBeNull();
+  });
+
+  test('แก้ note ในงวดที่กระทบยอดแล้ว → สำเร็จ (ป้ายไม่แตะตัวเลข/วัน)', async () => {
+    const e = await createEntry(db, alice, { pocketId: alicePocket, amountSatang: 100, occurredOn: '2026-03-10' });
+    await reconcilePocket(alicePocket, '2026-03-15');
+    const updated = await updateEntryLabels(db, alice, e.id, { note: 'ติดหมวดย้อนหลัง' });
+    expect(updated.note).toBe('ติดหมวดย้อนหลัง');
+  });
+
+  test('categoryId ของผู้ใช้อื่น → ForbiddenError', async () => {
+    const bobCat = await seedCategory(bob);
+    const e = await createEntry(db, alice, { pocketId: alicePocket, amountSatang: 100 });
+    await expect(updateEntryLabels(db, alice, e.id, { categoryId: bobCat })).rejects.toBeInstanceOf(ForbiddenError);
+  });
+
+  // 🔴 ข้อ 2.3 — ห้ามลบ ห้าม skip
+  test('ผู้ใช้ B แก้รายการของ A ไม่ได้ → ForbiddenError', async () => {
+    const e = await createEntry(db, bob, { pocketId: bobPocket, amountSatang: 100 });
+    await expect(updateEntryLabels(db, alice, e.id, { note: 'แอบแก้' })).rejects.toBeInstanceOf(ForbiddenError);
+  });
+
+  test('รายการที่ลบแล้ว → NotFoundError', async () => {
+    const e = await createEntry(db, alice, { pocketId: alicePocket, amountSatang: 100 });
+    await deleteEntry(db, alice, e.id);
+    await expect(updateEntryLabels(db, alice, e.id, { note: 'x' })).rejects.toBeInstanceOf(NotFoundError);
   });
 });

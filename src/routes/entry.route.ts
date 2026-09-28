@@ -1,8 +1,8 @@
 import { Hono } from 'hono';
 import { ValidationError } from '../domain/errors';
 import type { AuthEnv } from '../middleware/auth';
-import { createEntry, createTransfer, deleteEntry } from '../services/entry.service';
-import { createEntrySchema, createTransferSchema } from './schemas/entry.schema';
+import { createEntry, createTransfer, deleteEntry, updateEntryLabels } from '../services/entry.service';
+import { createEntrySchema, createTransferSchema, patchEntrySchema } from './schemas/entry.schema';
 
 // occurredOn ที่ไม่ส่งมา ปล่อย undefined ลงไปถึง repository — repository ใส่ today()
 // (Asia/Bangkok) ให้เอง ห้ามคำนวณวันที่ซ้ำที่นี่ · conditional spread เพราะ
@@ -22,6 +22,20 @@ entryRoutes.post('/', async (c) => {
     ...(parsed.note !== undefined ? { note: parsed.note } : {})
   });
   return c.json({ entry }, 201);
+});
+
+// PATCH = แก้ป้ายเท่านั้น (note/categoryId) · ทำได้แม้ในงวดที่กระทบยอดแล้ว (ไม่แตะตัวเลข/วัน)
+// การแก้ยอด/วัน/กระเป๋าไปที่ POST /:id/replace แทน
+entryRoutes.patch('/:id', async (c) => {
+  const body = await c.req.json().catch(() => {
+    throw new ValidationError('invalid_json', 'เนื้อหาคำขอต้องเป็น JSON');
+  });
+  const parsed = patchEntrySchema.parse(body);
+  const entry = await updateEntryLabels(c.env.DB, c.get('userId'), c.req.param('id'), {
+    ...(parsed.note !== undefined ? { note: parsed.note } : {}),
+    ...(parsed.categoryId !== undefined ? { categoryId: parsed.categoryId } : {})
+  });
+  return c.json({ entry });
 });
 
 // ลบ = soft delete · ตอบ 204 ไม่มี body · หน้าจอโหลดรายการ+ยอดใหม่เอง

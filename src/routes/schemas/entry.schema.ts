@@ -21,6 +21,15 @@ export const createEntrySchema = z
   })
   .strict();
 
+// PATCH ป้ายเท่านั้น — .strict() ปฏิเสธ amountSatang/occurredOn/pocketId ที่ห้ามแก้ทางนี้ → 400
+// note/categoryId ตั้ง null เพื่อล้างได้
+export const patchEntrySchema = z
+  .object({
+    note: note.nullable().optional(),
+    categoryId: z.string().min(1).nullable().optional()
+  })
+  .strict();
+
 export const createTransferSchema = z
   .object({
     fromPocketId: z.string().min(1),
