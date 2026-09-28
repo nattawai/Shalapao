@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, test } from 'vitest';
 import { ForbiddenError } from '../domain/errors';
 import { newId, nowIso } from '../domain/id';
 import { applyReconcile, getRollupBalanceAsOf } from './pocket.repository';
+import { cancelReconcile, getLastReconcile } from './pocket-reconcile.repository';
 
 const db = env.DB;
 
@@ -97,7 +98,7 @@ describe('applyReconcile — ลงรายการปรับ + ปิดง
   test('diff ≠ 0 → ลงรายการปรับ (source reconcile · วัน = asOfDate) แล้วยอดตรง', async () => {
     await insertEntry(alicePocket, alice, 100000, '2026-03-10');
 
-    const adj = await applyReconcile(db, alice, { pocketId: alicePocket, asOfDate: '2026-03-15', diffSatang: 5000 });
+    const adj = await applyReconcile(db, alice, { pocketId: alicePocket, asOfDate: '2026-03-15', diffSatang: 5000, expectedSatang: 0, actualSatang: 5000 });
 
     expect(adj).not.toBeNull();
     expect(adj?.amountSatang).toBe(5000);
@@ -113,7 +114,7 @@ describe('applyReconcile — ลงรายการปรับ + ปิดง
     await insertEntry(alicePocket, alice, 100000, '2026-03-10');
     const before = await countEntries();
 
-    const adj = await applyReconcile(db, alice, { pocketId: alicePocket, asOfDate: '2026-03-15', diffSatang: 0 });
+    const adj = await applyReconcile(db, alice, { pocketId: alicePocket, asOfDate: '2026-03-15', diffSatang: 0, expectedSatang: 0, actualSatang: 0 });
 
     expect(adj).toBeNull();
     expect(await countEntries()).toBe(before);
@@ -124,7 +125,7 @@ describe('applyReconcile — ลงรายการปรับ + ปิดง
   // ตัวเอง (assertNotReconciled: occurred_on <= เส้น) · applyReconcile จึงต้อง INSERT ดิบ
   // ข้ามด่านนั้น เพราะ reconcile คือผู้เขียนรายการปิดงวดที่ได้รับอนุญาต
   test('รายการปรับลงวันตรงกับเส้นได้ (INSERT ดิบข้าม assertNotReconciled)', async () => {
-    const adj = await applyReconcile(db, alice, { pocketId: alicePocket, asOfDate: '2026-03-15', diffSatang: -300 });
+    const adj = await applyReconcile(db, alice, { pocketId: alicePocket, asOfDate: '2026-03-15', diffSatang: -300, expectedSatang: 0, actualSatang: -300 });
     expect(adj?.occurredOn).toBe('2026-03-15');
     expect(await lastReconciledAt(alicePocket)).toBe('2026-03-15');
   });
@@ -134,7 +135,7 @@ describe('applyReconcile — ลงรายการปรับ + ปิดง
   test('asOfDate ผิดรูปแบบ → ทั้ง batch ล้ม ไม่มีรายการปรับค้าง ไม่ปิดงวด', async () => {
     const before = await countEntries();
     await expect(
-      applyReconcile(db, alice, { pocketId: alicePocket, asOfDate: '15/03/2026', diffSatang: 5000 })
+      applyReconcile(db, alice, { pocketId: alicePocket, asOfDate: '15/03/2026', diffSatang: 5000, expectedSatang: 0, actualSatang: 5000 })
     ).rejects.toThrow();
     expect(await countEntries()).toBe(before);
     expect(await lastReconciledAt(alicePocket)).toBeNull();
@@ -145,9 +146,46 @@ describe('applyReconcile — ลงรายการปรับ + ปิดง
   test('ไม่ใช่สมาชิก → ForbiddenError ไม่มีรายการเกิด ไม่ปิดงวด', async () => {
     const before = await countEntries();
     await expect(
-      applyReconcile(db, bob, { pocketId: alicePocket, asOfDate: '2026-03-15', diffSatang: 5000 })
+      applyReconcile(db, bob, { pocketId: alicePocket, asOfDate: '2026-03-15', diffSatang: 5000, expectedSatang: 0, actualSatang: 5000 })
     ).rejects.toBeInstanceOf(ForbiddenError);
     expect(await countEntries()).toBe(before);
     expect(await lastReconciledAt(alicePocket)).toBeNull();
+  });
+});
+
+describe('getLastReconcile / cancelReconcile', () => {
+  async function adjustmentDeletedAt(entryId: string): Promise<string | null> {
+    const row = await db.prepare('SELECT deleted_at FROM entry WHERE id = ?').bind(entryId).first<{ deleted_at: string | null }>();
+    return row?.deleted_at ?? null;
+  }
+
+  test('getLastReconcile คืนครั้งล่าสุด · previous_line ชี้ครั้งก่อน', async () => {
+    await applyReconcile(db, alice, { pocketId: alicePocket, asOfDate: '2026-03-10', diffSatang: 0, expectedSatang: 100, actualSatang: 100 });
+    await applyReconcile(db, alice, { pocketId: alicePocket, asOfDate: '2026-03-20', diffSatang: 0, expectedSatang: 200, actualSatang: 200 });
+
+    const last = await getLastReconcile(db, alice, alicePocket);
+    expect(last?.asOfDate).toBe('2026-03-20');
+    expect(last?.previousLine).toBe('2026-03-10');
+    expect(last?.expectedSatang).toBe(200);
+  });
+
+  // 🔴 กันรั่วข้ามผู้ใช้
+  test('ไม่ใช่สมาชิก → getLastReconcile คืน null', async () => {
+    await applyReconcile(db, alice, { pocketId: alicePocket, asOfDate: '2026-03-10', diffSatang: 0, expectedSatang: 0, actualSatang: 0 });
+    expect(await getLastReconcile(db, bob, alicePocket)).toBeNull();
+  });
+
+  test('cancelReconcile คืนเส้น previous_line · ลบรายการปรับ · getLastReconcile ถอยไปครั้งก่อน', async () => {
+    await applyReconcile(db, alice, { pocketId: alicePocket, asOfDate: '2026-03-10', diffSatang: 0, expectedSatang: 0, actualSatang: 0 });
+    const adj = await applyReconcile(db, alice, { pocketId: alicePocket, asOfDate: '2026-03-20', diffSatang: 5000, expectedSatang: 0, actualSatang: 5000 });
+    expect(adj).not.toBeNull();
+
+    const last = await getLastReconcile(db, alice, alicePocket);
+    expect(last?.asOfDate).toBe('2026-03-20');
+    await cancelReconcile(db, alice, last?.id ?? '');
+
+    expect(await lastReconciledAt(alicePocket)).toBe('2026-03-10'); // คืน previous_line
+    expect(await adjustmentDeletedAt(adj?.id ?? '')).not.toBeNull(); // รายการปรับถูก soft delete
+    expect((await getLastReconcile(db, alice, alicePocket))?.asOfDate).toBe('2026-03-10'); // ถอยไปครั้งก่อน
   });
 });

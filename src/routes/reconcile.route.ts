@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { ValidationError } from '../domain/errors';
 import type { AuthEnv } from '../middleware/auth';
-import { previewReconcile, reconcile } from '../services/reconcile.service';
+import { getLastReconcile, previewReconcile, reconcile, unreconcile } from '../services/reconcile.service';
 import { reconcileBodySchema, reconcilePreviewQuerySchema } from './schemas/reconcile.schema';
 
 // ปุ่มเช็คยอด ซ้อนใต้ /api/pockets/:id — pocketId มาจาก URL ไม่ใช่ body
@@ -25,5 +25,17 @@ reconcileRoutes.post('/:id/reconcile', async (c) => {
     asOfDate: parsed.asOfDate,
     actualBalanceSatang: parsed.actualBalanceSatang
   });
+  return c.json(result);
+});
+
+// อ่านการตรวจยอดครั้งล่าสุด (แสดง "ตรวจยอดล่าสุด" บนหน้าแรก) · ไม่เคยตรวจ → { reconcile: null }
+reconcileRoutes.get('/:id/reconcile', async (c) => {
+  const record = await getLastReconcile(c.env.DB, c.get('userId'), c.req.param('id'));
+  return c.json({ reconcile: record });
+});
+
+// ยกเลิกการตรวจยอดครั้งล่าสุด — 404 ถ้าไม่เคยตรวจ · 403 กระเป๋าคนอื่น · 409 กระเป๋าแม่ปิดคลุม
+reconcileRoutes.delete('/:id/reconcile', async (c) => {
+  const result = await unreconcile(c.env.DB, c.get('userId'), c.req.param('id'));
   return c.json(result);
 });

@@ -2,7 +2,7 @@ import { env } from 'cloudflare:test';
 import { Hono } from 'hono';
 import { beforeEach, describe, expect, test } from 'vitest';
 import type { Env } from '../../src/config';
-import { newId, today } from '../../src/domain/id';
+import { newId, nowIso, today } from '../../src/domain/id';
 import { authMiddleware, type AuthEnv } from '../../src/middleware/auth';
 import { upsertUserByLineId } from '../../src/repositories/app-user.repository';
 import { entryRoutes } from '../../src/routes/entry.route';
@@ -233,5 +233,69 @@ describe('กระทบยอดวันเดิมซ้ำด้วยย�
     // ยอด ณ วันปิด = ยอดจริงที่แก้แล้ว (90,000 + 10,000)
     const pv = (await (await preview(alice, p, '2026-03-15')).json()) as { expectedSatang: number };
     expect(pv.expectedSatang).toBe(100000);
+  });
+});
+
+describe('unreconcile — GET/DELETE /api/pockets/:id/reconcile', () => {
+  const del = (user: string, id: string) => app.request(`/api/pockets/${id}/reconcile`, as(user, { method: 'DELETE' }), runEnv);
+  const getLast = (user: string, id: string) => app.request(`/api/pockets/${id}/reconcile`, as(user), runEnv);
+
+  test('GET ก่อนตรวจยอด → { reconcile: null }', async () => {
+    const p = await createPocket(alice, 'p');
+    const res = await getLast(alice, p);
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { reconcile: unknown }).reconcile).toBeNull();
+  });
+
+  test('ตรวจยอดแล้ว GET เห็นครั้งล่าสุด · DELETE ถอยได้ · ยอดกลับเดิม', async () => {
+    const p = await createPocket(alice, 'p');
+    await addEntry(alice, p, 100000, '2026-09-10');
+    await post(alice, p, { actualBalanceSatang: 105000, asOfDate: '2026-09-20' });
+
+    const got = await getLast(alice, p);
+    expect(((await got.json()) as { reconcile: { asOfDate: string } }).reconcile.asOfDate).toBe('2026-09-20');
+
+    expect((await del(alice, p)).status).toBe(200);
+    const pv = (await (await preview(alice, p, '2026-09-20')).json()) as { expectedSatang: number };
+    expect(pv.expectedSatang).toBe(100000); // adjustment ถูกลบ ยอดกลับเดิม
+  });
+
+  test('404 ยกเลิกทั้งที่ไม่เคยตรวจยอด', async () => {
+    const p = await createPocket(alice, 'p');
+    expect((await del(alice, p)).status).toBe(404);
+  });
+
+  test('403 ยกเลิกกระเป๋าของผู้ใช้อื่น', async () => {
+    const p = await createPocket(bob, 'ของบ๊อบ');
+    await post(bob, p, { actualBalanceSatang: 0, asOfDate: '2026-09-20' });
+    expect((await del(alice, p)).status).toBe(403);
+  });
+});
+
+describe('isBackfill flag บน GET /api/pockets/:id/reconcile', () => {
+  const getLast = (user: string, id: string) => app.request(`/api/pockets/${id}/reconcile`, as(user), runEnv);
+
+  test('แถว backfill (expected/actual = 0 · ไม่มี adjustment) → isBackfill = true', async () => {
+    const p = await createPocket(alice, 'p');
+    // จำลองแถว backfill (แบบเดียวกับ migration 0009) — ไม่มีข้อมูลจริง
+    await db
+      .prepare(
+        `INSERT INTO pocket_reconcile (id, pocket_id, reconciled_by, as_of_date, expected_satang, actual_satang, adjustment_id, previous_line, created_at)
+         VALUES (?, ?, (SELECT id FROM app_user WHERE line_user_id = ?), ?, 0, 0, NULL, NULL, ?)`
+      )
+      .bind(newId(), p, alice, '2026-09-20', nowIso())
+      .run();
+
+    const res = await getLast(alice, p);
+    expect(((await res.json()) as { reconcile: { isBackfill: boolean } }).reconcile.isBackfill).toBe(true);
+  });
+
+  test('ตรวจยอดผ่านแอปจริง (ส่วนต่าง ≠ 0) → isBackfill = false', async () => {
+    const p = await createPocket(alice, 'p');
+    await addEntry(alice, p, 100000, '2026-09-10');
+    await post(alice, p, { actualBalanceSatang: 105000, asOfDate: '2026-09-20' }); // diff +5000 → มี adjustment
+
+    const res = await getLast(alice, p);
+    expect(((await res.json()) as { reconcile: { isBackfill: boolean } }).reconcile.isBackfill).toBe(false);
   });
 });

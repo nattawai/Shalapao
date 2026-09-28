@@ -46,7 +46,9 @@ describe('reconcile — เทียบแล้วปิดงวด', () => {
     expect(pocketRepo.applyReconcile).toHaveBeenCalledWith(db, 'u1', {
       pocketId: 'p1',
       asOfDate: '2026-03-15',
-      diffSatang: 5000
+      diffSatang: 5000,
+      expectedSatang: 150000,
+      actualSatang: 155000
     });
     expect(out).toEqual({
       asOfDate: '2026-03-15',
@@ -66,7 +68,7 @@ describe('reconcile — เทียบแล้วปิดงวด', () => {
 
     expect(out.diffSatang).toBe(0);
     expect(out.adjustmentEntry).toBeNull();
-    expect(pocketRepo.applyReconcile).toHaveBeenCalledWith(db, 'u1', { pocketId: 'p1', asOfDate: '2026-03-15', diffSatang: 0 });
+    expect(pocketRepo.applyReconcile).toHaveBeenCalledWith(db, 'u1', { pocketId: 'p1', asOfDate: '2026-03-15', diffSatang: 0, expectedSatang: 150000, actualSatang: 150000 });
   });
 });
 
@@ -102,7 +104,7 @@ describe('กฎวันที่ (SQL บังคับไม่ได้ —
 
     await reconcile(db, 'u1', { pocketId: 'p1', asOfDate: '2026-03-10', actualBalanceSatang: 100500 });
 
-    expect(pocketRepo.applyReconcile).toHaveBeenCalledWith(db, 'u1', { pocketId: 'p1', asOfDate: '2026-03-10', diffSatang: 500 });
+    expect(pocketRepo.applyReconcile).toHaveBeenCalledWith(db, 'u1', { pocketId: 'p1', asOfDate: '2026-03-10', diffSatang: 500, expectedSatang: 100000, actualSatang: 100500 });
   });
 });
 

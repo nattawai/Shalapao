@@ -1,7 +1,13 @@
-import { ConflictError, ForbiddenError, ValidationError } from '../domain/errors';
+import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../domain/errors';
 import { today } from '../domain/id';
 import type { Entry } from '../repositories/entry.repository';
 import { applyReconcile, getRollupBalanceAsOf, getPocket } from '../repositories/pocket.repository';
+import {
+  cancelReconcile,
+  findLockingAncestor,
+  getLastReconcile as repoGetLastReconcile,
+  type ReconcileRecord
+} from '../repositories/pocket-reconcile.repository';
 
 // ปุ่มเช็คยอด — หัวใจของแอป: ทำให้ตัวเลขกลับมาตรงกับธนาคารได้เสมอ
 //
@@ -76,7 +82,9 @@ export async function reconcile(db: D1Database, userId: string, input: Reconcile
   const adjustmentEntry = await applyReconcile(db, userId, {
     pocketId: input.pocketId,
     asOfDate: input.asOfDate,
-    diffSatang
+    diffSatang,
+    expectedSatang,
+    actualSatang: input.actualBalanceSatang
   });
   return {
     asOfDate: input.asOfDate,
@@ -86,4 +94,45 @@ export async function reconcile(db: D1Database, userId: string, input: Reconcile
     adjustmentEntry,
     lastReconciledAt: input.asOfDate
   };
+}
+
+export type UnreconcileResult = {
+  pocketId: string;
+  asOfDate: string; // as_of ของครั้งที่เพิ่งยกเลิก
+  restoredLine: string | null; // last_reconciled_at ใหม่ (= previous_line) · NULL = กลับไปไม่เคยตรวจ
+  adjustmentReversed: boolean; // มีรายการปรับที่ถูกลบไหม
+};
+
+// ยกเลิกการตรวจยอดครั้งล่าสุด — ถอย last_reconciled_at กลับ previous_line + ลบรายการปรับ
+// สิทธิ์ก่อน (getPocket ผ่าน pocket_member → 403) · ไม่เคยตรวจยอด → 404 · 🔴 กระเป๋าแม่ปิดคลุม
+// วันที่จะยกเลิก → 409 (ต้องยกเลิกจากบนลงล่าง ไม่งั้น rollup ของแม่ที่ยืนยันแล้วจะเปลี่ยนเงียบ ๆ)
+export async function unreconcile(db: D1Database, userId: string, pocketId: string): Promise<UnreconcileResult> {
+  const pocket = await getPocket(db, userId, pocketId);
+  if (!pocket) {
+    throw new ForbiddenError('pocket_forbidden', 'ไม่มีสิทธิ์ในกระเป๋านี้ — ยกเลิกการตรวจยอดไม่ได้');
+  }
+  const last = await repoGetLastReconcile(db, userId, pocketId);
+  if (!last) {
+    throw new NotFoundError('reconcile_not_found', 'ยังไม่เคยตรวจยอดกระเป๋านี้ จึงไม่มีอะไรให้ยกเลิก');
+  }
+  const locker = await findLockingAncestor(db, pocketId, last.asOfDate);
+  if (locker) {
+    throw new ConflictError(
+      'reconcile_ancestor_locked',
+      `ต้องยกเลิกการตรวจยอดของ ${locker.name} (${locker.lastReconciledAt}) ก่อน เพราะยอดรวมของกระเป๋านั้นนับกระเป๋านี้อยู่ด้วย`
+    );
+  }
+  await cancelReconcile(db, userId, last.id);
+  return {
+    pocketId,
+    asOfDate: last.asOfDate,
+    restoredLine: last.previousLine,
+    adjustmentReversed: last.adjustmentId !== null
+  };
+}
+
+// อ่านการตรวจยอดครั้งล่าสุด (สำหรับแสดง "ตรวจยอดล่าสุด" บนหน้าแรก) — forwarder ให้ route
+// เข้าถึงได้โดยไม่แตะ repository ตรง ๆ · กรอง member ที่ repository (ไม่ใช่สมาชิก → null)
+export function getLastReconcile(db: D1Database, userId: string, pocketId: string): Promise<ReconcileRecord | null> {
+  return repoGetLastReconcile(db, userId, pocketId);
 }
