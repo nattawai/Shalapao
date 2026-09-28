@@ -150,19 +150,19 @@ export type ApplyReconcileInput = {
   pocketId: string;
   asOfDate: string;
   diffSatang: number;
+  expectedSatang: number; // ยอดที่ระบบคิด — เก็บลง pocket_reconcile เป็นร่องรอย
+  actualSatang: number; // ยอดจริงจากธนาคาร
 };
 
-// ปิดงวดกระทบยอด: ลงรายการปรับ (ถ้า diff ≠ 0) แล้วเลื่อนเส้น last_reconciled_at
+// ปิดงวดกระทบยอด: (1) ลงรายการปรับ ถ้า diff ≠ 0 · (2) บันทึกประวัติลง pocket_reconcile ทุกครั้ง
+// (3) เลื่อนเส้น last_reconciled_at — 🔴 ทั้งสามอยู่ใน db.batch เดียว (all-or-nothing)
 //
-// รายการปรับต้อง INSERT ดิบ ไม่ผ่าน createEntry — เพราะ occurred_on = asOfDate เท่ากับ
-// เส้นที่กำลังจะตั้ง assertNotReconciled (occurred_on <= เส้น) จะปฏิเสธมันเอง · reconcile
-// คือผู้เขียนรายการปิดงวดที่ได้รับอนุญาตเพียงรายเดียว — โค้ดที่อื่นห้ามเลียนแบบ INSERT ดิบนี้
-// เพราะจะข้ามด่านกันนับซ้ำ (ข้อตกลงข้อ 6) · กรณีที่ทำให้จำเป็นจริง: กรอกยอดผิดแล้วกระทบยอด
-// วันเดิมซ้ำเพื่อแก้ (asOfDate == เส้นเดิม) ถ้าไม่มี INSERT ดิบ = กรอกผิดครั้งเดียวแก้ไม่ได้ตลอดกาล
+// รายการปรับ INSERT ดิบ ไม่ผ่าน createEntry — occurred_on = asOfDate เท่ากับเส้นที่กำลังจะตั้ง
+// assertNotReconciled จะปฏิเสธมันเอง · reconcile คือผู้เขียนรายการปิดงวดที่ได้รับอนุญาตรายเดียว
+// (โค้ดที่อื่นห้ามเลียนแบบ) · INSERT ดิบข้าม auto-filter จึงกันสิทธิ์เองที่นี่เป็นด่านชดเชย
 //
-// INSERT ดิบข้าม auto-filter ทุกตัว จึงกันสิทธิ์เองที่นี่เป็นด่านชดเชย · INSERT ปรับกับ UPDATE
-// เส้นต้องอยู่ batch เดียว (all-or-nothing) — ถ้าครึ่ง ๆ กลาง ๆ: ปรับแต่ไม่ปิด = ปรับซ้ำตอน retry
-// · ปิดแต่ไม่ปรับ = ยอดผิดถาวร
+// 🔴 ต้องอ่าน last_reconciled_at "ก่อน" UPDATE เพื่อเก็บ previous_line — ถ้าอ่านหลัง UPDATE
+// จะได้ค่าใหม่ แล้วการถอย (unreconcile) จะวนกลับที่เดิมตลอดไป
 export async function applyReconcile(
   db: D1Database,
   userId: string,
@@ -174,26 +174,39 @@ export async function applyReconcile(
     .first<{ ok: number }>();
   if (!member) throw new ForbiddenError('pocket_forbidden', 'ไม่มีสิทธิ์ในกระเป๋านี้ — ต้องเป็นสมาชิกก่อนจึงจะกระทบยอดได้');
 
-  const setLine = db
-    .prepare('UPDATE pocket SET last_reconciled_at = ? WHERE id = ?')
-    .bind(input.asOfDate, input.pocketId);
+  const prev = await db
+    .prepare('SELECT last_reconciled_at AS line FROM pocket WHERE id = ?')
+    .bind(input.pocketId)
+    .first<{ line: string | null }>();
+  const previousLine = prev?.line ?? null;
 
-  if (input.diffSatang === 0) {
-    await setLine.run();
-    return null;
+  const now = nowIso();
+  const adjustmentId = input.diffSatang === 0 ? null : newId();
+
+  const ops: D1PreparedStatement[] = [];
+  if (adjustmentId !== null) {
+    // ต้องมาก่อน INSERT pocket_reconcile ที่ FK ชี้ไป adjustment_id
+    ops.push(
+      db
+        .prepare(
+          `INSERT INTO entry (id, pocket_id, created_by_user_id, amount_satang, occurred_on, source, created_at)
+           VALUES (?, ?, ?, ?, ?, 'reconcile', ?)`
+        )
+        .bind(adjustmentId, input.pocketId, userId, input.diffSatang, input.asOfDate, now)
+    );
   }
-
-  const adjustmentId = newId();
-  await db.batch([
+  ops.push(
     db
       .prepare(
-        `INSERT INTO entry (id, pocket_id, created_by_user_id, amount_satang, occurred_on, source, created_at)
-         VALUES (?, ?, ?, ?, ?, 'reconcile', ?)`
+        `INSERT INTO pocket_reconcile (id, pocket_id, reconciled_by, as_of_date, expected_satang, actual_satang, adjustment_id, previous_line, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .bind(adjustmentId, input.pocketId, userId, input.diffSatang, input.asOfDate, nowIso()),
-    setLine
-  ]);
+      .bind(newId(), input.pocketId, userId, input.asOfDate, input.expectedSatang, input.actualSatang, adjustmentId, previousLine, now)
+  );
+  ops.push(db.prepare('UPDATE pocket SET last_reconciled_at = ? WHERE id = ?').bind(input.asOfDate, input.pocketId));
+  await db.batch(ops);
 
+  if (adjustmentId === null) return null;
   const adjustment = await getEntry(db, userId, adjustmentId);
   if (!adjustment) throw new Error('ลงรายการปรับแล้วอ่านกลับไม่เจอ — ไม่ควรเกิด');
   return adjustment;

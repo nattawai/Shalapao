@@ -76,7 +76,9 @@ export async function reconcile(db: D1Database, userId: string, input: Reconcile
   const adjustmentEntry = await applyReconcile(db, userId, {
     pocketId: input.pocketId,
     asOfDate: input.asOfDate,
-    diffSatang
+    diffSatang,
+    expectedSatang,
+    actualSatang: input.actualBalanceSatang
   });
   return {
     asOfDate: input.asOfDate,
