@@ -1,12 +1,14 @@
 import {
   archivePocket as repoArchivePocket,
   createPocket as repoCreatePocket,
+  getSummary as repoGetSummary,
   listPockets as repoListPockets,
   unarchivePocket as repoUnarchivePocket,
   updatePocket as repoUpdatePocket,
   type CreatePocketInput,
   type ListPocketsOptions,
   type PocketWithBalance,
+  type Summary,
   type UpdatePocketInput
 } from '../repositories/pocket.repository';
 
@@ -26,6 +28,10 @@ export function listPockets(
 
 export function createPocket(db: D1Database, userId: string, input: CreatePocketInput): Promise<PocketWithBalance> {
   return repoCreatePocket(db, userId, input);
+}
+
+export function getSummary(db: D1Database, userId: string): Promise<Summary> {
+  return repoGetSummary(db, userId);
 }
 
 export function updatePocket(

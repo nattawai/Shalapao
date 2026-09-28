@@ -146,6 +146,30 @@ export async function getRollupBalanceAsOf(
   return row?.balance ?? 0;
 }
 
+export type Summary = {
+  totalSatang: number;
+  pocketCount: number;
+};
+
+// ยอดรวมของผู้ใช้ + จำนวนกระเป๋า สำหรับหน้าแรก
+// 🔴 SUM ยอด "ของตัวเอง" (pocket_balance) ต่อกระเป๋า ไม่ใช่ rollup — rollup ของแม่นับยอดลูก
+// อยู่แล้ว บวก rollup ทุกใบจะนับยอดลูกซ้ำทุกชั้น · balance_satang รวมทุก entry ของใบนั้นครั้งเดียว
+// ผลรวมข้ามใบจึง = ผลรวม entry ทั้งหมดพอดี · กรองผ่าน pocket_member ต่อผู้ใช้ (ไม่นับของคนอื่น)
+// archived ไม่ถูกนับทั้งยอดและจำนวน — ให้ตรงกับรายการกระเป๋าที่หน้าจอเห็นโดยดีฟอลต์ (ซ่อน archived)
+export async function getSummary(db: D1Database, userId: string): Promise<Summary> {
+  const row = await db
+    .prepare(
+      `SELECT COALESCE(SUM(b.balance_satang), 0) AS total_satang, COUNT(*) AS pocket_count
+       FROM pocket_member m
+       JOIN pocket p         ON p.id = m.pocket_id
+       JOIN pocket_balance b ON b.pocket_id = p.id
+       WHERE m.user_id = ? AND m.left_at IS NULL AND p.archived_at IS NULL`
+    )
+    .bind(userId)
+    .first<{ total_satang: number; pocket_count: number }>();
+  return { totalSatang: row?.total_satang ?? 0, pocketCount: row?.pocket_count ?? 0 };
+}
+
 export type ApplyReconcileInput = {
   pocketId: string;
   asOfDate: string;
