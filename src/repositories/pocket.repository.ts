@@ -155,18 +155,26 @@ export type Summary = {
 // 🔴 SUM ยอด "ของตัวเอง" (pocket_balance) ต่อกระเป๋า ไม่ใช่ rollup — rollup ของแม่นับยอดลูก
 // อยู่แล้ว บวก rollup ทุกใบจะนับยอดลูกซ้ำทุกชั้น · balance_satang รวมทุก entry ของใบนั้นครั้งเดียว
 // ผลรวมข้ามใบจึง = ผลรวม entry ทั้งหมดพอดี · กรองผ่าน pocket_member ต่อผู้ใช้ (ไม่นับของคนอื่น)
-// archived ไม่ถูกนับทั้งยอดและจำนวน — ให้ตรงกับรายการกระเป๋าที่หน้าจอเห็นโดยดีฟอลต์ (ซ่อน archived)
+//
+// 🔴 สองตัวเลขใช้เกณฑ์ archived ต่างกันโดยตั้งใจ:
+//   totalSatang รวม archived — rollup ของกระเป๋าแม่นับ archived อยู่แล้ว (ROADMAP: entry เก่ายังถูกนับ)
+//     และ createEntry ไม่ได้ห้ามลงรายการในกระเป๋าที่ archive แล้ว ยอดจึงเกิดขึ้นจริงได้ · ถ้าตัด
+//     archived ออกจากยอดรวม หน้าแรกจะไม่เท่ากับผลรวมของยอดกระเป๋าที่ผู้ใช้เห็น = ตัวเลขขัดกันเอง
+//   pocketCount ไม่นับ archived — ให้ตรงกับรายการกระเป๋าที่หน้าจอเห็นโดยดีฟอลต์ (ซ่อน archived)
+// จึงเป็น WHERE เดียว (สมาชิก) + แยก archived ด้วย CASE เฉพาะการนับ
 export async function getSummary(db: D1Database, userId: string): Promise<Summary> {
   const row = await db
     .prepare(
-      `SELECT COALESCE(SUM(b.balance_satang), 0) AS total_satang, COUNT(*) AS pocket_count
+      `SELECT
+         COALESCE(SUM(b.balance_satang), 0)                          AS total_satang,
+         SUM(CASE WHEN p.archived_at IS NULL THEN 1 ELSE 0 END)      AS pocket_count
        FROM pocket_member m
        JOIN pocket p         ON p.id = m.pocket_id
        JOIN pocket_balance b ON b.pocket_id = p.id
-       WHERE m.user_id = ? AND m.left_at IS NULL AND p.archived_at IS NULL`
+       WHERE m.user_id = ? AND m.left_at IS NULL`
     )
     .bind(userId)
-    .first<{ total_satang: number; pocket_count: number }>();
+    .first<{ total_satang: number; pocket_count: number | null }>();
   return { totalSatang: row?.total_satang ?? 0, pocketCount: row?.pocket_count ?? 0 };
 }
 

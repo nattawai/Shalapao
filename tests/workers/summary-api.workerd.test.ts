@@ -97,16 +97,26 @@ describe('GET /api/summary', () => {
     expect(body.pocketCount).toBe(0);
   });
 
-  // archived = ออกจากภาพรวมที่ใช้งานอยู่ (รายการกระเป๋าดีฟอลต์ก็ซ่อน) → ไม่นับทั้ง count และ total
-  test('กระเป๋าที่ archive แล้วไม่ถูกนับ (ทั้งยอดและจำนวน)', async () => {
+  // ยอดรวมนับ archived (rollup ของแม่ก็นับ · createEntry ไม่ห้ามลงในกระเป๋าที่ archive แล้ว →
+  // ยอดเกิดจริงได้) แต่จำนวนกระเป๋าไม่นับ archived (ให้ตรงกับรายการที่หน้าจอเห็น)
+  test('ยอดรวมนับกระเป๋าที่ archive ด้วย · จำนวนกระเป๋าไม่นับ', async () => {
     const keep = await createPocket(alice, 'ใช้อยู่');
     await addEntry(alice, keep, 40000);
+
+    // archive ตอนยอด 0 แล้วค่อยเพิ่มรายการเข้าไปผ่าน SQL ตรง ๆ (จำลองรายการที่เกิดหลัง archive)
     const gone = await createPocket(alice, 'เลิกใช้');
     await db.prepare('UPDATE pocket SET archived_at = ? WHERE id = ?').bind('2026-01-01T00:00:00.000Z', gone).run();
+    await db
+      .prepare(
+        `INSERT INTO entry (id, pocket_id, created_by_user_id, amount_satang, occurred_on, source, created_at)
+         VALUES (?, ?, (SELECT user_id FROM pocket_member WHERE pocket_id = ? AND left_at IS NULL LIMIT 1), ?, ?, 'manual', ?)`
+      )
+      .bind(newId(), gone, gone, 40000, '2026-02-01', '2026-02-01T00:00:00.000Z')
+      .run();
 
     const res = await app.request('/api/summary', as(alice), runEnv);
     const body = (await res.json()) as SummaryBody;
-    expect(body.totalSatang).toBe(40000);
-    expect(body.pocketCount).toBe(1);
+    expect(body.totalSatang).toBe(80000); // 40000 (ใช้อยู่) + 40000 (archived) รวมด้วย
+    expect(body.pocketCount).toBe(1); // นับเฉพาะ 'ใช้อยู่' — archived ไม่นับ
   });
 });
