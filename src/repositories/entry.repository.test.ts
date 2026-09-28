@@ -464,4 +464,29 @@ describe('replaceEntry (ยอด/วัน/กระเป๋า)', () => {
     ).rejects.toBeInstanceOf(ValidationError);
     expect(await countEntries()).toBe(before);
   });
+
+  // ย้ายกระเป๋า (input.pocketId ต่างจากเดิม) — assertMember + assertNotReconciled ของกระเป๋าใหม่
+  test('ย้ายไปกระเป๋าผู้ใช้อื่น → ForbiddenError', async () => {
+    const e = await createEntry(db, alice, { pocketId: alicePocket, amountSatang: 100 });
+    await expect(
+      replaceEntry(db, alice, e.id, { pocketId: bobPocket, amountSatang: 100, occurredOn: '2026-03-10' })
+    ).rejects.toBeInstanceOf(ForbiddenError);
+  });
+
+  test('ย้ายไปกระเป๋าที่งวดปิดคลุมวันใหม่ → ConflictError', async () => {
+    const dest = await seedPocket(alice);
+    await reconcilePocket(dest, '2026-03-15');
+    const e = await createEntry(db, alice, { pocketId: alicePocket, amountSatang: 100, occurredOn: '2026-03-20' });
+    await expect(
+      replaceEntry(db, alice, e.id, { pocketId: dest, amountSatang: 100, occurredOn: '2026-03-10' })
+    ).rejects.toBeInstanceOf(ConflictError);
+  });
+
+  test('ย้ายกระเป๋าสำเร็จ · ยอดย้ายตามไปด้วย', async () => {
+    const dest = await seedPocket(alice);
+    const e = await createEntry(db, alice, { pocketId: alicePocket, amountSatang: -5000, occurredOn: '2026-03-10' });
+    await replaceEntry(db, alice, e.id, { pocketId: dest, amountSatang: -5000, occurredOn: '2026-03-10' });
+    expect(await balanceOf(alicePocket)).toBe(0);
+    expect(await balanceOf(dest)).toBe(-5000);
+  });
 });
