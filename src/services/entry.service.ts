@@ -3,11 +3,13 @@ import {
   createTransfer as repoCreateTransfer,
   deleteEntry as repoDeleteEntry,
   listEntries as repoListEntries,
+  listSubtreeEntries as repoListSubtreeEntries,
   replaceEntry as repoReplaceEntry,
   updateEntryLabels as repoUpdateEntryLabels,
   type CreateEntryInput,
   type CreateTransferInput,
   type Entry,
+  type EntryWithPocket,
   type ReplaceEntryInput,
   type UpdateEntryLabelsInput
 } from '../repositories/entry.repository';
@@ -31,6 +33,10 @@ export function createTransfer(
 
 export function listEntries(db: D1Database, userId: string, pocketId: string): Promise<Entry[]> {
   return repoListEntries(db, userId, pocketId);
+}
+
+export function listSubtreeEntries(db: D1Database, userId: string, pocketId: string): Promise<EntryWithPocket[]> {
+  return repoListSubtreeEntries(db, userId, pocketId);
 }
 
 export function deleteEntry(db: D1Database, userId: string, entryId: string): Promise<void> {

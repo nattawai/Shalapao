@@ -1,9 +1,9 @@
 import { Hono } from 'hono';
 import { ValidationError } from '../domain/errors';
 import type { AuthEnv } from '../middleware/auth';
-import { listEntries } from '../services/entry.service';
+import { listEntries, listSubtreeEntries } from '../services/entry.service';
 import { archivePocket, createPocket, listPockets, unarchivePocket, updatePocket } from '../services/pocket.service';
-import { createPocketSchema, listPocketsQuerySchema, patchPocketSchema } from './schemas/pocket.schema';
+import { createPocketSchema, listEntriesQuerySchema, listPocketsQuerySchema, patchPocketSchema } from './schemas/pocket.schema';
 
 // userId มาจาก context ที่ auth middleware ยัดไว้ (token ที่ LINE เซ็น) — ไม่รับจาก client
 // balance ส่งเป็นสตางค์จำนวนเต็มตรง ๆ (มาจาก view) ไม่แปลงเป็นบาท — การแปลงเป็นงานแสดงผล
@@ -17,9 +17,14 @@ pocketRoutes.get('/', async (c) => {
 
 // กระเป๋าที่ไม่ใช่ของผู้ใช้ → คืน array ว่าง ไม่ใช่ 404 · 404 จะบอกได้ว่ากระเป๋า
 // มีอยู่จริงไหม = รั่วข้อมูล (เหตุผลเดียวกับ 401 auth ที่ไม่บอกว่าพลาดข้อไหน)
-// listEntries กรองผ่าน pocket_member อยู่แล้ว จึงได้ [] เองถ้าไม่ใช่สมาชิก
+// listEntries/listSubtreeEntries กรองผ่าน pocket_member อยู่แล้ว จึงได้ [] เองถ้าไม่ใช่สมาชิก
+// subtree=1 = รวมลูกทุกชั้น (คืน pocketName ต่อแถว) · ไม่ส่ง/subtree=0 = พฤติกรรมเดิมทุกประการ
 pocketRoutes.get('/:id/entries', async (c) => {
-  const entries = await listEntries(c.env.DB, c.get('userId'), c.req.param('id'));
+  const { subtree } = listEntriesQuerySchema.parse(c.req.query());
+  const entries =
+    subtree === '1'
+      ? await listSubtreeEntries(c.env.DB, c.get('userId'), c.req.param('id'))
+      : await listEntries(c.env.DB, c.get('userId'), c.req.param('id'));
   return c.json({ entries });
 });
 

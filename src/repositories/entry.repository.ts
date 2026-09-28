@@ -161,6 +161,32 @@ export async function listEntries(db: D1Database, userId: string, pocketId: stri
   return results.map(mapRow);
 }
 
+export type EntryWithPocket = Entry & { pocketName: string };
+
+// รายการของกระเป๋านี้ + ลูกทุกชั้น (ไล่ต้นไม้จาก view pocket_subtree) เรียงตามวัน
+// 🔴 กรอง pocket_member ต่อ node เหมือน rollup (permissive) — ลูกที่ผู้ใช้ไม่ได้เป็นสมาชิก
+// จะไม่โผล่ · กระเป๋าที่ไม่ใช่ของผู้ใช้เลย → JOIN ไม่ติด → [] (ไม่ใช่ 404 เหมือน listEntries)
+// คืน pocketName ต่อแถวเพราะรายการมาจากหลายกระเป๋า หน้าจอต้องรู้ว่าแถวไหนของใบไหน
+export async function listSubtreeEntries(db: D1Database, userId: string, pocketId: string): Promise<EntryWithPocket[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT
+         e.id, e.pocket_id, e.created_by_user_id, e.amount_satang, e.occurred_on,
+         e.category_id, e.note, e.source, e.transfer_id, e.reverses_id,
+         e.deleted_at, e.updated_at, e.created_at,
+         p.name AS pocket_name
+       FROM pocket_subtree st
+       JOIN pocket_member m ON m.pocket_id = st.node_id AND m.user_id = ? AND m.left_at IS NULL
+       JOIN entry e         ON e.pocket_id = st.node_id AND e.deleted_at IS NULL
+       JOIN pocket p        ON p.id = e.pocket_id
+       WHERE st.root_id = ?
+       ORDER BY e.occurred_on, e.id`
+    )
+    .bind(userId, pocketId)
+    .all<EntryRow & { pocket_name: string }>();
+  return results.map((row) => ({ ...mapRow(row), pocketName: row.pocket_name }));
+}
+
 export type UpdateEntryLabelsInput = { note?: string | null; categoryId?: string | null };
 
 // PATCH ป้ายเท่านั้น — แก้ได้แค่ note, categoryId (UPDATE แถวเดิม) · ประทับ updated_at

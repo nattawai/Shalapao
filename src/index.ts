@@ -8,6 +8,7 @@ import { httpError } from './routes/http-error';
 import { me } from './routes/me.route';
 import { pocketRoutes } from './routes/pocket.route';
 import { reconcileRoutes } from './routes/reconcile.route';
+import { summaryRoutes } from './routes/summary.route';
 import { upsertUserByLineId } from './repositories/app-user.repository';
 
 const app = new Hono<AuthEnv>();
@@ -49,6 +50,7 @@ app.route('/api/pockets', reconcileRoutes);
 app.route('/api/categories', categoryRoutes);
 app.route('/api/entries', entryRoutes);
 app.route('/api/transfers', transferRoutes);
+app.route('/api/summary', summaryRoutes);
 
 // จุดเดียวที่แปลง typed error (domain) และ ZodError → HTTP status
 app.onError(httpError);
