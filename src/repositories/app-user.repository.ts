@@ -30,3 +30,73 @@ export async function upsertUserByLineId(
   if (!row) throw new Error('upsert app_user แล้วอ่านกลับไม่เจอ — ไม่ควรเกิด');
   return { id: row.id };
 }
+
+// ลบบัญชีถาวร (PDPA — เจ้าของข้อมูลเอาข้อมูลออกเองได้) · hard delete ไม่ใช่ soft · batch เดียว
+// (ลบครึ่งทางแล้วพัง = สถานะที่ซ่อมไม่ได้) · เรียกซ้ำหลังลบได้ 204 เพราะ auth upsert สร้างบัญชี
+// ว่างใหม่ก่อนถึงที่นี่ แล้วลบของว่าง — ไม่ใช่บั๊ก
+//
+// "solo pocket" = กระเป๋าที่ผู้ใช้นี้เป็นสมาชิก active และไม่มี active คนอื่น → ลบทั้งใบ
+// กระเป๋าที่ยังมี active คนอื่น → แค่ตั้ง left_at ของผู้ใช้นี้ ห้ามลบกระเป๋า/entry ในนั้น
+// (ลบ entry ของคนที่ออกไป = ยอดของสมาชิกที่เหลือเพี้ยนทันทีโดยเขาไม่รู้ตัว)
+//
+// 🔴 คำนวณ id ของ solo pocket ด้วย SELECT ก่อน แล้ว bind เป็นค่าคงที่ — ห้ามให้ batch คิด "solo"
+// ใหม่กลางคัน เพราะ solo นิยามจาก pocket_member ของผู้ใช้ ซึ่ง batch กำลังจะแก้ (ลบ/ตั้ง left_at)
+export async function deleteAccount(db: D1Database, userId: string): Promise<void> {
+  const { results } = await db
+    .prepare(
+      `SELECT pm.pocket_id AS pocket_id,
+              EXISTS(SELECT 1 FROM pocket_member o
+                     WHERE o.pocket_id = pm.pocket_id AND o.user_id <> ? AND o.left_at IS NULL) AS shared
+       FROM pocket_member pm
+       WHERE pm.user_id = ? AND pm.left_at IS NULL`
+    )
+    .bind(userId, userId)
+    .all<{ pocket_id: string; shared: number }>();
+  const soloIds = results.filter((r) => r.shared === 0).map((r) => r.pocket_id);
+  const sharedIds = results.filter((r) => r.shared !== 0).map((r) => r.pocket_id);
+  const marks = (ids: string[]) => ids.map(() => '?').join(', ');
+
+  const ops: D1PreparedStatement[] = [];
+  if (soloIds.length > 0) {
+    // ลำดับตาม FK (child→parent): pocket_reconcile.adjustment_id → entry · entry → pocket/category/app_user
+    // · pocket_member → pocket · ต้องลบ reconcile ก่อน entry ก่อน pocket เสมอ
+    ops.push(db.prepare(`DELETE FROM pocket_reconcile WHERE pocket_id IN (${marks(soloIds)})`).bind(...soloIds));
+    ops.push(db.prepare(`DELETE FROM entry WHERE pocket_id IN (${marks(soloIds)})`).bind(...soloIds));
+    ops.push(db.prepare(`DELETE FROM pocket_member WHERE pocket_id IN (${marks(soloIds)})`).bind(...soloIds));
+    ops.push(db.prepare(`DELETE FROM pocket WHERE id IN (${marks(soloIds)})`).bind(...soloIds));
+  }
+  if (sharedIds.length > 0) {
+    const now = nowIso();
+    ops.push(
+      db
+        .prepare(`UPDATE pocket_member SET left_at = ? WHERE user_id = ? AND left_at IS NULL AND pocket_id IN (${marks(sharedIds)})`)
+        .bind(now, userId, ...sharedIds)
+    );
+  }
+
+  // ลบหมวดของผู้ใช้เฉพาะที่ไม่มี entry (ที่เหลืออยู่) อ้างถึง · ที่ถูก entry ในกระเป๋าร่วมอ้างจะไม่ถูกลบ
+  // 🔴 ผลคือ entry นั้นกลายเป็น "ไม่ระบุหมวด" ตอนอ่าน (LEFT JOIN category ไม่เจอ) — ยอมรับได้
+  // เกิดเฉพาะ v3 (กระเป๋าร่วม) · v0 ไม่มี entry เหลือจึงลบหมวดครบเสมอ
+  ops.push(db.prepare('DELETE FROM category WHERE user_id = ? AND NOT EXISTS (SELECT 1 FROM entry WHERE entry.category_id = category.id)').bind(userId));
+
+  // ลบ app_user เฉพาะเมื่อไม่มีแถวใดอ้างถึงแล้ว (ทางเลือก B)
+  // 🔴 เลือก B เพราะ test พิสูจน์ไม่ได้ว่า D1 จริงบังคับ FK หรือไม่ (เทสรันบน Miniflare ในเครื่อง
+  // ไม่ใช่ D1 บน Cloudflare · pragma ต่างกันได้ · เป็นชนิดที่เทสเขียวแต่ production พัง) · เงื่อนไข
+  // NOT EXISTS ทำให้ batch ไม่ fail ทั้ง FK เปิด/ปิด
+  // 🔴 หนี้ PDPA: เคสกระเป๋าร่วม app_user ของผู้ใช้จะถูกเก็บไว้ = เก็บ display_name + line_user_id
+  // ของคนที่ขอให้ลบ เป็นปัญหา PDPA จริง · v0 ยังไม่เกิด (ไม่มีกระเป๋าร่วม) แต่ v3 ต้องแก้ด้วย
+  // tombstone user (แถวไม่มี PII ให้ entry เก่าอ้าง) — ห้ามปล่อยผ่านด้วยเหตุผลว่า "v0 ไม่เกิด"
+  ops.push(
+    db
+      .prepare(
+        `DELETE FROM app_user WHERE id = ?
+           AND NOT EXISTS (SELECT 1 FROM entry WHERE created_by_user_id = ?)
+           AND NOT EXISTS (SELECT 1 FROM pocket_member WHERE user_id = ?)
+           AND NOT EXISTS (SELECT 1 FROM category WHERE user_id = ?)
+           AND NOT EXISTS (SELECT 1 FROM pocket_reconcile WHERE reconciled_by = ?)`
+      )
+      .bind(userId, userId, userId, userId, userId)
+  );
+
+  await db.batch(ops);
+}
