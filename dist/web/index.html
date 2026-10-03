@@ -43,10 +43,12 @@
       }
       .pocket-list { background: var(--card); border-radius: 12px; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,.04); }
       .pocket:last-child { border-bottom: 0; }
-      .pocket .name { flex: 1; }
+      /* ชื่อยาวตัด … (idiom เดียวกับ .entry .meta #56 / .sum-row .name #57) — คู่กับ .amount nowrap
+         ด้านล่าง ไม่งั้นเติม " บาท" แล้วยอดดันตกบรรทัด/ชนชื่อที่ 360px */
+      .pocket .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .pocket.child .name::before { content: '└ '; color: var(--muted); }
       .pocket.child { padding-left: 32px; }
-      .amount { font-variant-numeric: tabular-nums; font-weight: 600; }
+      .amount { font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
       .amount.neg { color: var(--danger); }
       .empty { text-align: center; color: var(--muted); padding: 40px 16px; }
 
@@ -266,6 +268,20 @@
       function formatBaht(satang) {
         return (satang / 100).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
       }
+      // มีหน่วย — ใช้ที่เดียวเป็นเจ้าของคำว่า "บาท" กันลืมต่อเอง/ต่อซ้ำเป็น "บาท บาท"
+      function formatBahtUnit(satang) {
+        return formatBaht(satang) + ' บาท';
+      }
+
+      const THAI_MONTHS_ABBR = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+      // '2026-09-24' → '24 ก.ย.' (ปีนี้ ไม่ต้องบอกปี) · ปีอื่น → '24 ก.ย. 68' (พ.ศ. 2 หลัก)
+      // 🔴 ตัดสตริงด้วย slice ประกอบเอง — ไม่สร้าง Date จากสตริง (กันบั๊กเขตเวลาแบบ today())
+      // และไม่ใช้ toLocaleDateString (ผลต่างกันตามเครื่อง) · เทียบปีกับ todayBangkok() ไม่ใช่ new Date()
+      function formatThaiDate(ymd) {
+        const base = Number(ymd.slice(8, 10)) + ' ' + THAI_MONTHS_ABBR[Number(ymd.slice(5, 7)) - 1];
+        if (ymd.slice(0, 4) === todayBangkok().slice(0, 4)) return base;
+        return base + ' ' + String((Number(ymd.slice(0, 4)) + 543) % 100).padStart(2, '0');
+      }
       // บาทที่ผู้ใช้กรอก → สตางค์ · ตรวจรูปแบบด้วย regex ก่อน parse — parseFloat รับขยะต่อท้าย
       // ('100abc'→100, '1e5'→100000) จึงต้องกันเอง: ตัวเลข + ทศนิยมไม่เกิน 2 ตำแหน่งเท่านั้น
       // Math.round เพราะ baht*100 บน float อาจได้ 6099.999
@@ -394,7 +410,7 @@
           const shown = hasChildren.has(pocket.id) ? (pocket.rollupSatang ?? pocket.balanceSatang) : pocket.balanceSatang;
           const amt = document.createElement('span');
           amt.className = 'amount' + (shown < 0 ? ' neg' : '');
-          amt.textContent = formatBaht(shown);
+          amt.textContent = formatBahtUnit(shown);
           row.append(name, amt);
           row.addEventListener('click', () => openStatement(pocket));
           list.appendChild(row);
@@ -619,13 +635,13 @@
           date.className = 'date';
           // ติดชื่อหมวดท้ายวันที่ถ้ามีและหาเจอ · ไม่มี/หาไม่เจอ → แค่วันที่ (ไม่มี " · " ค้าง)
           const catName = e.categoryId ? categoryNameById(e.categoryId) : null;
-          date.textContent = catName ? e.occurredOn + ' · ' + catName : e.occurredOn;
+          date.textContent = catName ? formatThaiDate(e.occurredOn) + ' · ' + catName : formatThaiDate(e.occurredOn);
           const note = document.createElement('div');
           note.textContent = entryNoteText(e);
           meta.append(date, note);
           const amt = document.createElement('div');
           amt.className = 'amt ' + (e.amountSatang < 0 ? 'out' : 'in');
-          amt.textContent = formatBaht(e.amountSatang);
+          amt.textContent = formatBahtUnit(e.amountSatang);
           row.append(meta, amt);
           card.appendChild(row);
         }
@@ -654,7 +670,7 @@
 
       // ยืนยันต้องเห็นว่ากำลังลบอันไหน — จำนวนเงิน + วันที่ + ชื่อกระเป๋า · ขาโยกบอกว่าลบทั้งคู่
       function confirmDelete(entry) {
-        let msg = 'ลบรายการนี้?\n\n' + formatBaht(entry.amountSatang) + ' บาท\n' + entry.occurredOn + '\n' + statementPocket.name;
+        let msg = 'ลบรายการนี้?\n\n' + formatBahtUnit(entry.amountSatang) + '\n' + formatThaiDate(entry.occurredOn) + '\n' + statementPocket.name;
         if (entry.transferId) msg += '\n\nรายการนี้เป็นการโยกเงิน จะลบทั้งขาเข้าและขาออก';
         if (!window.confirm(msg)) return;
         doDelete(entry.id);
@@ -727,7 +743,7 @@
         row.className = 'sum-total';
         const n = document.createElement('span'); n.className = 'name'; n.textContent = label;
         const a = document.createElement('span'); a.className = 'amount ' + (kind === 'out' ? 'neg' : 'pos');
-        a.textContent = formatBaht(satang);
+        a.textContent = formatBahtUnit(satang);
         row.append(n, a);
         return row;
       }
@@ -816,7 +832,7 @@
         try {
           const pv = await api('GET', '/api/pockets/' + encodeURIComponent(pocketId) + '/reconcile/preview?asOfDate=' + encodeURIComponent(asOfDate));
           rcExpectedSatang = pv.expectedSatang;
-          document.getElementById('rcExpectedLine').innerHTML = 'ระบบคำนวณได้ <b>' + formatBaht(pv.expectedSatang) + '</b> บาท ณ ' + pv.asOfDate;
+          document.getElementById('rcExpectedLine').innerHTML = 'ระบบคำนวณได้ <b>' + formatBahtUnit(pv.expectedSatang) + '</b> ณ ' + pv.asOfDate;
           document.getElementById('rcActual').value = '';
           document.getElementById('rcDiff').textContent = '';
           document.getElementById('rcConfirm').disabled = true;
@@ -846,7 +862,7 @@
           return;
         }
         const diff = actual - rcExpectedSatang;
-        diffEl.textContent = diff === 0 ? 'ตรงกันพอดี' : 'ต่าง ' + (diff > 0 ? '+' : '') + formatBaht(diff) + ' บาท';
+        diffEl.textContent = diff === 0 ? 'ตรงกันพอดี' : 'ต่าง ' + (diff > 0 ? '+' : '') + formatBahtUnit(diff);
         confirm.disabled = false; // diff = 0 ก็ยืนยันได้ (เพื่อปิดงวด)
         hint.hidden = true;
       }
@@ -870,7 +886,7 @@
           const r = await api('POST', '/api/pockets/' + encodeURIComponent(pocketId) + '/reconcile', { actualBalanceSatang: actual, asOfDate });
           const adj = r.adjustmentEntry;
           await loadPockets().catch(() => {});
-          showBanner(adj ? 'ปิดงวดแล้ว · ออกรายการปรับ ' + formatBaht(adj.amountSatang) + ' บาท' : 'ปิดงวดแล้ว · ยอดตรงพอดี ไม่มีรายการปรับ', null, 'success');
+          showBanner(adj ? 'ปิดงวดแล้ว · ออกรายการปรับ ' + formatBahtUnit(adj.amountSatang) : 'ปิดงวดแล้ว · ยอดตรงพอดี ไม่มีรายการปรับ', null, 'success');
           show('screen-list');
         } catch (err) {
           errEl.textContent = err.message;
