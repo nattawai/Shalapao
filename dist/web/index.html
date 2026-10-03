@@ -147,6 +147,8 @@
           </div>
           <label for="enPocket">กระเป๋า</label>
           <select id="enPocket"></select>
+          <label for="enCategory">หมวด (ไม่บังคับ)</label>
+          <select id="enCategory"></select>
           <label for="enBaht">จำนวนเงิน (บาท)</label>
           <input id="enBaht" type="text" inputmode="decimal" placeholder="0.00" />
           <label for="enDate">วันที่</label>
@@ -216,6 +218,12 @@
       const LIFF_ID = '2011608646-o7VPOT1u';
       let idToken = null;
       let pocketsCache = [];
+      let categoriesCache = [];
+      // เน็ตข้างนอกสะดุดบ่อย — ถ้าโหลดหมวดพลาดตอน init จำไว้ แล้ว openEntry ลองใหม่อีกครั้ง
+      // ไม่งั้นผู้ใช้นึกว่าหมวดหายแล้วสร้างซ้ำ · การจดสำคัญกว่าการติดหมวด จึงไม่บล็อกหน้า
+      let categoriesLoadFailed = false;
+      // จำค่าหมวดก่อนหน้า เพื่อเด้งกลับเมื่อยกเลิก/สร้างหมวดใหม่ไม่สำเร็จ (ไม่ค้างที่ "+ หมวดใหม่…")
+      let lastCategoryValue = '';
 
       // ---------- เงิน: API เป็นสตางค์จำนวนเต็ม · จอเป็นบาท ----------
       // แสดงผลเท่านั้น — ห้ามเอาค่าที่หารแล้วไปคำนวณต่อ
@@ -290,6 +298,24 @@
         }
       }
 
+      // หมวดในหน้าเพิ่มรายการ: "ไม่ระบุหมวด" (ค่าตั้งต้น) → หมวดของผู้ใช้ตามลำดับที่ API ส่งมา
+      // (เรียง sort_order,id ให้แล้ว — ไม่เรียงซ้ำ) → "+ หมวดใหม่…" ท้ายสุดเสมอ · เลือก selectedValue
+      function fillCategoryOptions(selectedValue) {
+        const sel = document.getElementById('enCategory');
+        sel.innerHTML = '<option value="">ไม่ระบุหมวด</option>';
+        for (const c of categoriesCache) {
+          const opt = document.createElement('option');
+          opt.value = c.id;
+          opt.textContent = c.name;
+          sel.appendChild(opt);
+        }
+        const neu = document.createElement('option');
+        neu.value = '__new__';
+        neu.textContent = '+ หมวดใหม่…';
+        sel.appendChild(neu);
+        sel.value = selectedValue || '';
+      }
+
       // ---------- หน้าจอ 1: รายการกระเป๋า ----------
       // เรียงพ่อก่อนแล้วตามด้วยลูกของมัน (parentId) · v0 รองรับชั้นเดียว
       function orderByParent(pockets) {
@@ -352,6 +378,19 @@
         }
       }
 
+      // cache หมวดแบบเดียวกับ pocketsCache · โหลดพลาด = ตั้ง flag ให้ openEntry ลองใหม่ (ไม่ขึ้น banner
+      // เพราะไม่อยากบล็อกทั้งหน้าแค่เพราะหมวดโหลดไม่ได้ — การจดสำคัญกว่า) · ปล่อย throw ให้ผู้เรียกจัดการ
+      async function loadCategories() {
+        try {
+          const { categories } = await api('GET', '/api/categories');
+          categoriesCache = categories;
+          categoriesLoadFailed = false;
+        } catch (err) {
+          categoriesLoadFailed = true;
+          throw err;
+        }
+      }
+
       // ---------- หน้าจอ 2: สร้างกระเป๋า ----------
       function openCreate() {
         document.getElementById('cpName').value = '';
@@ -383,17 +422,41 @@
       let entryType = 'out'; // ดีฟอลต์เงินออก · โค้ดใส่เครื่องหมายเอง ผู้ใช้ไม่พิมพ์ลบ
       let entryDateTouched = false;
 
-      function openEntry() {
+      async function openEntry() {
         if (pocketsCache.length === 0) { showBanner('ยังไม่มีกระเป๋า — สร้างกระเป๋าก่อนจึงจะเพิ่มรายการได้'); return; }
         entryType = 'out';
         for (const b of document.querySelectorAll('#enSeg button')) b.classList.toggle('active', b.dataset.type === 'out');
         fillPocketOptions(document.getElementById('enPocket'), null);
+        // โหลดหมวดเคยพลาด → ลองอีกครั้ง (พลาดซ้ำ cache ว่าง → เหลือ "ไม่ระบุหมวด"/"+ หมวดใหม่…" จดต่อได้)
+        if (categoriesLoadFailed) await loadCategories().catch(() => {});
+        fillCategoryOptions('');
+        lastCategoryValue = '';
         document.getElementById('enBaht').value = '';
         document.getElementById('enNote').value = '';
         document.getElementById('enDate').value = todayBangkok();
         entryDateTouched = false;
         document.getElementById('enError').textContent = '';
         show('screen-entry');
+      }
+
+      // เลือก "+ หมวดใหม่…" → prompt ถามชื่อ → สร้างแล้วเลือกให้เลย กรอกเงินต่อได้ทันที
+      // ยกเลิก/ชื่อว่าง/สร้างไม่สำเร็จ → เด้งกลับค่าก่อนหน้า (ห้ามค้างที่ "__new__" ไม่งั้นส่งเป็น categoryId)
+      async function onCategoryChange() {
+        const sel = document.getElementById('enCategory');
+        if (sel.value !== '__new__') { lastCategoryValue = sel.value; return; }
+        const name = (prompt('ชื่อหมวดใหม่') || '').trim();
+        if (!name) { sel.value = lastCategoryValue; return; }
+        const errEl = document.getElementById('enError');
+        errEl.textContent = '';
+        try {
+          const { category } = await api('POST', '/api/categories', { name });
+          categoriesCache.push(category);
+          fillCategoryOptions(category.id);
+          lastCategoryValue = category.id;
+        } catch (err) {
+          errEl.textContent = err.message;
+          sel.value = lastCategoryValue;
+        }
       }
 
       async function submitEntry() {
@@ -413,6 +476,9 @@
         if (entryDateTouched) body.occurredOn = document.getElementById('enDate').value;
         const note = document.getElementById('enNote').value.trim();
         if (note) body.note = note;
+        // ส่ง categoryId เฉพาะเมื่อเลือกหมวดจริง — ค่าว่าง/"__new__" ไม่ส่ง field นี้เลย (แบบเดียวกับ note)
+        const categoryId = document.getElementById('enCategory').value;
+        if (categoryId && categoryId !== '__new__') body.categoryId = categoryId;
 
         const btn = document.getElementById('enSubmit');
         btn.disabled = true;
@@ -651,6 +717,7 @@
       document.getElementById('goCreate').addEventListener('click', openCreate);
       document.getElementById('cpSubmit').addEventListener('click', submitCreate);
       document.getElementById('enSubmit').addEventListener('click', submitEntry);
+      document.getElementById('enCategory').addEventListener('change', onCategoryChange);
       document.getElementById('tfSubmit').addEventListener('click', submitTransfer);
       document.getElementById('enDate').addEventListener('input', () => { entryDateTouched = true; });
       document.getElementById('tfFrom').addEventListener('change', validateTransfer);
@@ -687,6 +754,7 @@
         }
         show('screen-list');
         loadPockets().catch(() => {});
+        loadCategories().catch(() => {}); // คู่ขนานกับ pockets · พลาดแล้ว openEntry ลองใหม่เอง
       })();
     </script>
   </body>
