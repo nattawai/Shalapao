@@ -153,20 +153,59 @@ export async function getEntry(db: D1Database, userId: string, entryId: string):
   return row ? mapRow(row) : null;
 }
 
-export async function listEntries(db: D1Database, userId: string, pocketId: string): Promise<Entry[]> {
-  const { results } = await db
-    .prepare(`${SELECT_MEMBER_ENTRY} AND e.pocket_id = ? ORDER BY e.occurred_on, e.id`)
-    .bind(userId, pocketId)
-    .all<EntryRow>();
-  return results.map(mapRow);
+export type EntryCounterpart = { counterpartPocketId: string | null; counterpartPocketName: string | null };
+export type EntryWithCounterpart = Entry & EntryCounterpart;
+export type EntryWithPocket = EntryWithCounterpart & { pocketName: string };
+
+type CounterpartRow = { counterpart_pocket_id: string | null; counterpart_pocket_name: string | null };
+
+function mapCounterpart(row: CounterpartRow): EntryCounterpart {
+  return { counterpartPocketId: row.counterpart_pocket_id, counterpartPocketName: row.counterpart_pocket_name };
 }
 
-export type EntryWithPocket = Entry & { pocketName: string };
+// ขาคู่ของการโยกเงินอยู่ "คนละกระเป๋า" กับที่ query จึงไม่อยู่ในผลลัพธ์ — ต้องดึงชื่อมาด้วย LEFT JOIN
+// ให้หน้าเดินบัญชีบอกได้ว่าโยกคู่กับกระเป๋าไหน โดยไม่ต้องไล่เทียบวัน/จำนวนเอง · ใช้ชื่อ "ปัจจุบัน"
+// ของกระเป๋าเสมอ (ไม่เก็บลงตาราง entry — เปลี่ยนชื่อแล้วต้องเห็นใหม่ทันที)
+//
+// 🔴 ผูก cp ผ่าน cm (membership ของ "ผู้เรียก" บนกระเป๋าขาคู่) — ถ้าไม่ได้เป็นสมาชิก cm ไม่ติด
+//    cp ก็ไม่ติด ทั้ง id และ name จึงเป็น null พร้อมกัน · ชื่อ/ตัวตนกระเป๋าของคนอื่นไม่รั่วผ่าน field นี้
+//    (จะเกิดได้ตอนกระเป๋าร่วม v3: โยกที่สองขาคนละเจ้าของ)
+// transfer มี 2 ขาเสมอ + other.id <> e.id → ได้ขาคู่แถวเดียว ไม่ทำผลลัพธ์บาน · รายการธรรมดา
+//    transfer_id เป็น NULL → เงื่อนไข NULL = NULL ไม่ match เอง counterpart จึงว่างอัตโนมัติ
+// ไม่กรอง other.deleted_at: ลบโยกเงินลบทั้งคู่ (deleteEntry) และ replaceEntry ปฏิเสธขาโยก —
+//    ถ้าแถวนี้ยังอยู่ ขาคู่ก็ยังอยู่เสมอ การกรองจึงไม่เปลี่ยนผลแต่เพิ่มความซับซ้อน
+// 🔴 ต้อง bind userId เพิ่มหนึ่งตัวสำหรับ cm.user_id (วาง ? ไว้ก่อน placeholder ของ WHERE)
+const COUNTERPART_SELECT = 'cp.id AS counterpart_pocket_id, cp.name AS counterpart_pocket_name';
+const COUNTERPART_JOIN = `
+  LEFT JOIN entry other      ON other.transfer_id = e.transfer_id AND other.id <> e.id
+  LEFT JOIN pocket_member cm ON cm.pocket_id = other.pocket_id AND cm.user_id = ? AND cm.left_at IS NULL
+  LEFT JOIN pocket cp        ON cp.id = cm.pocket_id`;
+
+export async function listEntries(db: D1Database, userId: string, pocketId: string): Promise<EntryWithCounterpart[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT
+         e.id, e.pocket_id, e.created_by_user_id, e.amount_satang, e.occurred_on,
+         e.category_id, e.note, e.source, e.transfer_id, e.reverses_id,
+         e.deleted_at, e.updated_at, e.created_at,
+         ${COUNTERPART_SELECT}
+       FROM entry e
+       JOIN pocket_member m ON m.pocket_id = e.pocket_id AND m.user_id = ? AND m.left_at IS NULL
+       ${COUNTERPART_JOIN}
+       WHERE e.deleted_at IS NULL AND e.pocket_id = ?
+       ORDER BY e.occurred_on, e.id`
+    )
+    .bind(userId, userId, pocketId)
+    .all<EntryRow & CounterpartRow>();
+  return results.map((row) => ({ ...mapRow(row), ...mapCounterpart(row) }));
+}
 
 // รายการของกระเป๋านี้ + ลูกทุกชั้น (ไล่ต้นไม้จาก view pocket_subtree) เรียงตามวัน
 // 🔴 กรอง pocket_member ต่อ node เหมือน rollup (permissive) — ลูกที่ผู้ใช้ไม่ได้เป็นสมาชิก
 // จะไม่โผล่ · กระเป๋าที่ไม่ใช่ของผู้ใช้เลย → JOIN ไม่ติด → [] (ไม่ใช่ 404 เหมือน listEntries)
 // คืน pocketName ต่อแถวเพราะรายการมาจากหลายกระเป๋า หน้าจอต้องรู้ว่าแถวไหนของใบไหน
+// counterpart ใส่ด้วยเหมือนโหมดปกติ — ?subtree=1 เป็น flag ของ endpoint เดียวกัน การโยกออก
+// นอกสาขาจะเห็นขาเดียว จึงต้องมี counterpart ไม่งั้นหน้าจอต้องรู้ว่าโหมดไหนมี field โหมดไหนไม่มี
 export async function listSubtreeEntries(db: D1Database, userId: string, pocketId: string): Promise<EntryWithPocket[]> {
   const { results } = await db
     .prepare(
@@ -174,17 +213,19 @@ export async function listSubtreeEntries(db: D1Database, userId: string, pocketI
          e.id, e.pocket_id, e.created_by_user_id, e.amount_satang, e.occurred_on,
          e.category_id, e.note, e.source, e.transfer_id, e.reverses_id,
          e.deleted_at, e.updated_at, e.created_at,
-         p.name AS pocket_name
+         p.name AS pocket_name,
+         ${COUNTERPART_SELECT}
        FROM pocket_subtree st
        JOIN pocket_member m ON m.pocket_id = st.node_id AND m.user_id = ? AND m.left_at IS NULL
        JOIN entry e         ON e.pocket_id = st.node_id AND e.deleted_at IS NULL
        JOIN pocket p        ON p.id = e.pocket_id
+       ${COUNTERPART_JOIN}
        WHERE st.root_id = ?
        ORDER BY e.occurred_on, e.id`
     )
-    .bind(userId, pocketId)
-    .all<EntryRow & { pocket_name: string }>();
-  return results.map((row) => ({ ...mapRow(row), pocketName: row.pocket_name }));
+    .bind(userId, userId, pocketId)
+    .all<EntryRow & { pocket_name: string } & CounterpartRow>();
+  return results.map((row) => ({ ...mapRow(row), pocketName: row.pocket_name, ...mapCounterpart(row) }));
 }
 
 export type CategoryBucket = { inflowSatang: number; outflowSatang: number; entryCount: number };
