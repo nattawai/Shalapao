@@ -11,6 +11,7 @@ import {
   type CreateEntryInput,
   type CreateTransferInput,
   type Entry,
+  type EntryWithCounterpart,
   type EntryWithPocket,
   type ReplaceEntryInput,
   type UpdateEntryLabelsInput
@@ -33,7 +34,7 @@ export function createTransfer(
   return repoCreateTransfer(db, userId, input);
 }
 
-export function listEntries(db: D1Database, userId: string, pocketId: string): Promise<Entry[]> {
+export function listEntries(db: D1Database, userId: string, pocketId: string): Promise<EntryWithCounterpart[]> {
   return repoListEntries(db, userId, pocketId);
 }
 
