@@ -5,7 +5,7 @@ import { authMiddleware, type AuthEnv } from './middleware/auth';
 import { categoryRoutes } from './routes/category.route';
 import { entryRoutes, transferRoutes } from './routes/entry.route';
 import { httpError } from './routes/http-error';
-import { me } from './routes/me.route';
+import { deleteMe, me } from './routes/me.route';
 import { pocketRoutes } from './routes/pocket.route';
 import { reconcileRoutes } from './routes/reconcile.route';
 import { summaryRoutes } from './routes/summary.route';
@@ -44,6 +44,7 @@ app.get('/api/health/db', async (c) => {
 // ชั่วคราว: smoke test สำหรับ first deploy — พิสูจน์ auth ด้วย ID token จริง
 // ต้องถูกแทนที่ตอนทำหน้าจอจริง ไม่ใช่ต่อยอดจากมัน
 app.get('/api/me', me);
+app.delete('/api/me', deleteMe);
 
 app.route('/api/pockets', pocketRoutes);
 app.route('/api/pockets', reconcileRoutes);
