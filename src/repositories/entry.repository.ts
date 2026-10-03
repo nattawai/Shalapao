@@ -187,6 +187,86 @@ export async function listSubtreeEntries(db: D1Database, userId: string, pocketI
   return results.map((row) => ({ ...mapRow(row), pocketName: row.pocket_name }));
 }
 
+export type CategoryBucket = { inflowSatang: number; outflowSatang: number; entryCount: number };
+export type CategorySummaryRow = CategoryBucket & { categoryId: string; categoryName: string };
+export type CategorySummary = {
+  rows: CategorySummaryRow[];
+  uncategorized: CategoryBucket;
+  totalInflowSatang: number;
+  totalOutflowSatang: number;
+};
+
+type CategoryGroupRow = {
+  category_id: string | null;
+  category_name: string | null;
+  inflow_satang: number;
+  outflow_satang: number;
+  entry_count: number;
+};
+
+// สรุปเงินเข้า/ออกรายหมวดในช่วง [from, to] (รวมปลายทั้งสองข้าง) — "ช่วงนี้จ่ายหมวดไหนเท่าไร"
+//
+// 🔴 ไม่นับขาโยกเงิน (transfer_id IS NULL): โยก 5,000 จาก A→B สร้าง entry คู่ (−5,000/+5,000)
+// เงินไม่ได้ออกจากมือ แค่ย้ายที่ ถ้านับจะโป่งทั้ง inflow และ outflow เท่า ๆ กันด้วยยอดที่ไม่เคยเกิด
+// 🔴 ไม่นับที่ลบแล้ว (deleted_at IS NULL) · 🔴 เริ่มจาก pocket_member ต่อผู้ใช้ (ไม่เห็นของคนอื่น)
+// inflow/outflow เป็นจำนวนเต็มบวกทั้งคู่ (outflow คืน −amount) ให้ UI ไม่ต้องคิดเครื่องหมายเอง
+//
+// total คิดแยก query แล้วยิงคู่กับ group ใน db.batch เดียว (D1 = transaction โดยปริยาย) เพื่อให้
+// ทั้งสองเห็น snapshot เดียวกัน — ถ้ายิงแยกแล้วมีการเขียนแทรกกลางคัน สมการ Σrows == total จะพังเงียบ ๆ
+export async function summarizeByCategory(
+  db: D1Database,
+  userId: string,
+  from: string,
+  to: string
+): Promise<CategorySummary> {
+  const source = 'FROM pocket_member m JOIN entry e ON e.pocket_id = m.pocket_id';
+  const filters = `WHERE m.user_id = ? AND m.left_at IS NULL
+      AND e.transfer_id IS NULL AND e.deleted_at IS NULL
+      AND e.occurred_on >= ? AND e.occurred_on <= ?`;
+  const inflow = 'COALESCE(SUM(CASE WHEN e.amount_satang > 0 THEN e.amount_satang ELSE 0 END), 0)';
+  const outflow = 'COALESCE(SUM(CASE WHEN e.amount_satang < 0 THEN -e.amount_satang ELSE 0 END), 0)';
+
+  // 🔴 LEFT JOIN category ให้ชื่อหมวดจาก id ของ "คนใส่รายการ" — v0 คนใส่ = เจ้าของเสมอจึงปลอดภัย
+  // 🔴 ต้องกลับมาดูตอนทำกระเป๋าร่วม (v3): ถ้า Bob ลงรายการติดหมวดของ Bob ในกระเป๋าร่วม Alice
+  // เปิดหน้าสรุปจะเห็นชื่อหมวดของ Bob (ช่องรั่วข้ามผู้ใช้เดียวกับ rollup) — ตอนนั้นต้องกรอง c.user_id
+  // tiebreak category_name/category_id เพื่อให้ลำดับคงที่เมื่อ outflow เท่ากัน (ไม่งั้นเทส flaky)
+  const groupStmt = db
+    .prepare(
+      `SELECT e.category_id AS category_id, c.name AS category_name,
+              ${inflow} AS inflow_satang, ${outflow} AS outflow_satang, COUNT(*) AS entry_count
+       ${source}
+       LEFT JOIN category c ON c.id = e.category_id
+       ${filters}
+       GROUP BY e.category_id
+       ORDER BY outflow_satang DESC, category_name ASC, category_id ASC`
+    )
+    .bind(userId, from, to);
+  const totalStmt = db
+    .prepare(`SELECT ${inflow} AS total_inflow, ${outflow} AS total_outflow ${source} ${filters}`)
+    .bind(userId, from, to);
+
+  const batch = await db.batch([groupStmt, totalStmt]);
+  const groups = (batch[0]?.results ?? []) as CategoryGroupRow[];
+  const totals = ((batch[1]?.results ?? []) as { total_inflow: number; total_outflow: number }[])[0];
+
+  const rows: CategorySummaryRow[] = [];
+  let uncategorized: CategoryBucket = { inflowSatang: 0, outflowSatang: 0, entryCount: 0 };
+  for (const g of groups) {
+    const bucket: CategoryBucket = { inflowSatang: g.inflow_satang, outflowSatang: g.outflow_satang, entryCount: g.entry_count };
+    if (g.category_id === null) {
+      uncategorized = bucket;
+    } else {
+      rows.push({ categoryId: g.category_id, categoryName: g.category_name ?? '', ...bucket });
+    }
+  }
+  return {
+    rows,
+    uncategorized,
+    totalInflowSatang: totals?.total_inflow ?? 0,
+    totalOutflowSatang: totals?.total_outflow ?? 0
+  };
+}
+
 export type UpdateEntryLabelsInput = { note?: string | null; categoryId?: string | null };
 
 // PATCH ป้ายเท่านั้น — แก้ได้แค่ note, categoryId (UPDATE แถวเดิม) · ประทับ updated_at
