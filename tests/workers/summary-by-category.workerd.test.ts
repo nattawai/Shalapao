@@ -232,4 +232,31 @@ describe('GET /api/summary/by-category', () => {
     const res = await app.request('/api/summary/by-category?from=2026-02-30&to=2026-03-01', as(alice), runEnv);
     expect(res.status).toBe(400);
   });
+
+  // 🔴 กระเป๋าที่ archive แล้วยังต้องถูกนับ — เงินที่จ่ายไปแล้วไม่หายเพราะเก็บกระเป๋า
+  // (ตรงกับ getSummary ที่นับ archived) · กัน regression ถ้าใครเผลอเติม AND archived_at IS NULL
+  test('กระเป๋าที่ archive แล้วยังถูกนับในสรุป', async () => {
+    const p = await createPocket(alice, 'เลิกใช้');
+    const food = await createCategory(alice, 'ค่าอาหาร');
+    await addEntry(alice, p, 50000, { categoryId: food, occurredOn: '2026-05-01' });
+    await addEntry(alice, p, -50000, { categoryId: food, occurredOn: '2026-05-02' });
+
+    // ยอด rollup = 0 จึง archive ได้ (ใช้ข้อบังคับ archive ให้เป็นประโยชน์)
+    const arch = await app.request(`/api/pockets/${p}/archive`, as(alice, { method: 'POST' }), runEnv);
+    expect(arch.status).toBe(200);
+
+    const s = await summary(alice, WIDE);
+    expect(s.rows.find((r) => r.categoryId === food)).toMatchObject({ inflowSatang: 50000, outflowSatang: 50000, entryCount: 2 });
+    expect(s.totalInflowSatang).toBe(50000);
+    expect(s.totalOutflowSatang).toBe(50000);
+  });
+
+  // 🔴 ช่วงว่างต้องได้ 0 ไม่ใช่ null (COALESCE) — toBe(0) ไม่ใช่ toBeFalsy (null ลอด toBeFalsy ได้)
+  test('ช่วงที่ไม่มีรายการ → ทุกค่าเป็น 0 ไม่ใช่ null', async () => {
+    const s = await summary(alice, WIDE);
+    expect(s.rows).toEqual([]);
+    expect(s.uncategorized).toEqual({ inflowSatang: 0, outflowSatang: 0, entryCount: 0 });
+    expect(s.totalInflowSatang).toBe(0);
+    expect(s.totalOutflowSatang).toBe(0);
+  });
 });
