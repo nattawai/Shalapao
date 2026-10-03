@@ -77,7 +77,9 @@
       /* รายการเดินบัญชี */
       .entry { display: flex; justify-content: space-between; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--border); background: var(--card); cursor: pointer; }
       .entry:last-child { border-bottom: 0; }
-      .entry .date { font-size: 13px; color: var(--muted); }
+      /* meta ต้อง min-width:0 เพื่อให้บรรทัดวันที่ย่อแล้วตัด … ได้ · note (ไม่มี nowrap) ยัง wrap ตามปกติ */
+      .entry .meta { flex: 1; min-width: 0; }
+      .entry .date { font-size: 13px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .entry .amt { font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
       .entry .amt.in { color: var(--pos); }
       .entry .amt.out { color: var(--danger); }
@@ -549,6 +551,24 @@
       // ---------- หน้ารายการเดินบัญชี ----------
       let statementPocket = null;
 
+      // ชื่อหมวดจาก id — หาจาก categoriesCache (B1) · หาไม่เจอ (cache ว่าง/หมวดจากอีกเครื่อง) → null
+      // 🔴 คืน null ไม่ใช่ id ดิบ/undefined — ผู้เรียกจะได้แสดงแค่วันที่
+      function categoryNameById(id) {
+        const c = categoriesCache.find((x) => x.id === id);
+        return c ? c.name : null;
+      }
+
+      // บรรทัดล่างตามลำดับความสำคัญ: note ผู้ใช้ชนะเสมอ → ขาโยก (รู้ชื่อคู่/ไม่รู้) → ปรับยอด → —
+      function entryNoteText(e) {
+        if (e.note) return e.note;
+        if (e.transferId) {
+          if (e.counterpartPocketName) return (e.amountSatang < 0 ? 'โยกไป ' : 'มาจาก ') + e.counterpartPocketName;
+          return 'โยกเงิน';
+        }
+        if (e.source === 'reconcile') return 'ปรับยอดจากการเช็คยอด';
+        return '—';
+      }
+
       function renderEntries(entries) {
         const host = document.getElementById('stList');
         host.innerHTML = '';
@@ -560,11 +580,14 @@
           row.className = 'entry';
           row.addEventListener('click', () => confirmDelete(e)); // แตะแถว → ถามยืนยันลบ
           const meta = document.createElement('div');
+          meta.className = 'meta';
           const date = document.createElement('div');
           date.className = 'date';
-          date.textContent = e.occurredOn;
+          // ติดชื่อหมวดท้ายวันที่ถ้ามีและหาเจอ · ไม่มี/หาไม่เจอ → แค่วันที่ (ไม่มี " · " ค้าง)
+          const catName = e.categoryId ? categoryNameById(e.categoryId) : null;
+          date.textContent = catName ? e.occurredOn + ' · ' + catName : e.occurredOn;
           const note = document.createElement('div');
-          note.textContent = e.note || (e.source === 'reconcile' ? 'ปรับยอดจากการเช็คยอด' : '—');
+          note.textContent = entryNoteText(e);
           meta.append(date, note);
           const amt = document.createElement('div');
           amt.className = 'amt ' + (e.amountSatang < 0 ? 'out' : 'in');
