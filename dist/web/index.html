@@ -85,6 +85,23 @@
       .entry .amt.out { color: var(--danger); }
       .list-card { background: var(--card); border-radius: 12px; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,.04); }
 
+      /* สรุปตามหมวด */
+      .month-nav { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+      .month-nav span { font-weight: 600; font-size: 16px; }
+      .monthbtn { width: auto; padding: 8px 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--card); color: var(--text); cursor: pointer; }
+      .sum-totals { background: var(--card); border-radius: 12px; margin-bottom: 16px; box-shadow: 0 1px 2px rgba(0,0,0,.04); }
+      .sum-total { display: flex; justify-content: space-between; align-items: center; padding: 14px 16px; }
+      .sum-total + .sum-total { border-top: 1px solid var(--border); }
+      .sum-total .name { color: var(--muted); }
+      .sum-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--border); background: var(--card); }
+      .sum-row:last-child { border-bottom: 0; }
+      /* ชื่อหมวดยาวตัดด้วย … (min-width:0 ให้ flex ย่อได้) · ยอดด้านขวาไม่ถูกเบียด */
+      .sum-row .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .sum-amts { text-align: right; white-space: nowrap; }
+      .sum-out { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--danger); }
+      .sum-in { font-variant-numeric: tabular-nums; font-size: 13px; color: var(--pos); }
+      .amount.pos { color: var(--pos); }
+
       #banner { margin: 16px; padding: 14px 16px; border-radius: 10px; }
       #banner.err { background: #fef3f2; border: 1px solid #fecdca; color: var(--danger); }
       #banner.ok { background: #ecfdf3; border: 1px solid #a6f4c5; color: var(--pos); }
@@ -114,6 +131,7 @@
         <main>
           <div id="pockets"><p class="empty">กำลังโหลด…</p></div>
           <button class="btn" id="goEntry">＋ เพิ่มรายการ</button>
+          <button class="btn-ghost" id="goSummary">สรุปตามหมวด</button>
           <button class="btn-ghost" id="goReconcile">เช็คยอดกับธนาคาร</button>
           <button class="btn-ghost" id="goTransfer">โยกเงินระหว่างกระเป๋า</button>
           <button class="btn-ghost" id="goCreate">สร้างกระเป๋าใหม่</button>
@@ -187,6 +205,22 @@
           <h1 id="stTitle">รายการ</h1>
         </header>
         <main><div id="stList"><p class="empty">กำลังโหลด…</p></div></main>
+      </section>
+
+      <!-- หน้าจอ: สรุปตามหมวด (คำถามหลักของแอป — เดือนนี้จ่ายหมวดไหนเท่าไร) -->
+      <section id="screen-summary" class="screen" hidden>
+        <header>
+          <button class="back" data-back aria-label="กลับ">‹</button>
+          <h1>สรุปตามหมวด</h1>
+        </header>
+        <main>
+          <div class="month-nav">
+            <button class="monthbtn" id="smPrev" aria-label="เดือนก่อนหน้า">◀</button>
+            <span id="smMonth"></span>
+            <button class="monthbtn" id="smNext" aria-label="เดือนถัดไป">▶</button>
+          </div>
+          <div id="smBody"><p class="empty">กำลังโหลด…</p></div>
+        </main>
       </section>
 
       <!-- หน้าปุ่มเช็คยอด (ไหลสามขั้น: คำนวณ → กรอกยอดจริง+เห็นส่วนต่าง → ยืนยันปิดงวด) -->
@@ -636,6 +670,111 @@
         }
       }
 
+      // ---------- หน้าจอ: สรุปตามหมวด ----------
+      const THAI_MONTHS = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
+      let summaryYear = 0;
+      let summaryMonth = 0; // 1-based
+      let summaryReqFrom = null; // from ของคำขอล่าสุด — กันคำตอบมาผิดลำดับตอนกดเปลี่ยนเดือนรัว ๆ
+
+      const pad2 = (n) => String(n).padStart(2, '0');
+
+      // 🔴 วันสุดท้ายของเดือน: day 0 ของ "เดือนถัดไป" = วันสุดท้ายเดือนนี้ (month 1-based ใส่เป็น monthIndex
+      // ของ Date.UTC ได้ตรง ๆ = เดือนถัดไป) → ก.พ./อธิกสุรทินถูกเอง ไม่ hardcode 28/30/31
+      // ใช้ Date.UTC ด้วยตัวเลขล้วน ไม่สร้าง Date จากสตริง 'YYYY-MM-DD' (กันบั๊กเขตเวลาแบบ today())
+      function monthRange(year, month) {
+        const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+        return { from: year + '-' + pad2(month) + '-01', to: year + '-' + pad2(month) + '-' + pad2(lastDay) };
+      }
+
+      function openSummary() {
+        const t = todayBangkok(); // 'YYYY-MM-DD' เวลาไทย — ตัดด้วย slice ไม่ parse เป็น Date
+        summaryYear = Number(t.slice(0, 4));
+        summaryMonth = Number(t.slice(5, 7));
+        show('screen-summary');
+        loadSummary();
+      }
+
+      function shiftMonth(delta) {
+        summaryMonth += delta;
+        if (summaryMonth < 1) { summaryMonth = 12; summaryYear--; }
+        else if (summaryMonth > 12) { summaryMonth = 1; summaryYear++; }
+        loadSummary();
+      }
+
+      function sumAmounts(outSatang, inSatang) {
+        const wrap = document.createElement('div');
+        wrap.className = 'sum-amts';
+        // แสดงบรรทัดรายจ่ายเฉพาะเมื่อ > 0 · รายรับ (เขียวเล็ก) เฉพาะเมื่อ > 0 — ไม่ขึ้น 0.00 หลอก
+        if (outSatang > 0) {
+          const o = document.createElement('div'); o.className = 'sum-out'; o.textContent = formatBaht(outSatang); wrap.appendChild(o);
+        }
+        if (inSatang > 0) {
+          const i = document.createElement('div'); i.className = 'sum-in'; i.textContent = '+ ' + formatBaht(inSatang); wrap.appendChild(i);
+        }
+        return wrap;
+      }
+
+      function sumRow(name, outSatang, inSatang) {
+        const row = document.createElement('div');
+        row.className = 'sum-row';
+        const n = document.createElement('span'); n.className = 'name'; n.textContent = name;
+        row.append(n, sumAmounts(outSatang, inSatang));
+        return row;
+      }
+
+      function sumTotal(label, satang, kind) {
+        const row = document.createElement('div');
+        row.className = 'sum-total';
+        const n = document.createElement('span'); n.className = 'name'; n.textContent = label;
+        const a = document.createElement('span'); a.className = 'amount ' + (kind === 'out' ? 'neg' : 'pos');
+        a.textContent = formatBaht(satang);
+        row.append(n, a);
+        return row;
+      }
+
+      function renderSummary(data) {
+        const host = document.getElementById('smBody');
+        host.innerHTML = '';
+        const rows = data.rows.filter((r) => r.outflowSatang !== 0 || r.inflowSatang !== 0);
+        const unc = data.uncategorized;
+        const hasUnc = !!unc && (unc.outflowSatang !== 0 || unc.inflowSatang !== 0);
+        if (rows.length === 0 && !hasUnc) {
+          host.innerHTML = '<p class="empty">ยังไม่มีรายการในเดือนนี้</p>';
+          return;
+        }
+        const totals = document.createElement('div');
+        totals.className = 'sum-totals';
+        totals.append(sumTotal('รายจ่ายรวม', data.totalOutflowSatang, 'out'), sumTotal('รายรับรวม', data.totalInflowSatang, 'in'));
+        host.appendChild(totals);
+
+        const card = document.createElement('div');
+        card.className = 'list-card';
+        // 🔴 ตามลำดับที่ API ส่งมา (รายจ่ายมากไปน้อย) — ไม่เรียงซ้ำใน JS
+        for (const r of rows) card.appendChild(sumRow(r.categoryName, r.outflowSatang, r.inflowSatang));
+        // 🔴 uncategorized ต่อท้ายเสมอ ไม่ปนใน rows (ไม่ใช่หมวด แตะดูต่อไม่ได้)
+        if (hasUnc) card.appendChild(sumRow('ไม่ระบุหมวด', unc.outflowSatang, unc.inflowSatang));
+        host.appendChild(card);
+      }
+
+      async function loadSummary() {
+        document.getElementById('smMonth').textContent = THAI_MONTHS[summaryMonth - 1] + ' ' + (summaryYear + 543);
+        const { from, to } = monthRange(summaryYear, summaryMonth);
+        summaryReqFrom = from;
+        const host = document.getElementById('smBody');
+        host.innerHTML = '<p class="empty">กำลังโหลด…</p>';
+        try {
+          const data = await api('GET', '/api/summary/by-category?from=' + from + '&to=' + to);
+          // กดเปลี่ยนเดือนรัว ๆ → คำตอบอาจมาผิดลำดับ · เทียบ from ที่ API echo กลับกับคำขอล่าสุด ทิ้งถ้าไม่ตรง
+          if (data.from !== summaryReqFrom) return;
+          clearBanner();
+          renderSummary(data);
+        } catch (err) {
+          if (summaryReqFrom !== from) return; // ถูกคำขอใหม่แทนที่แล้ว — อย่าเด้ง banner ทับ
+          host.innerHTML = '';
+          showBanner(err.message, loadSummary);
+        }
+      }
+
       // ---------- หน้าปุ่มเช็คยอด (กระทบยอด) ----------
       let rcExpectedSatang = null;
 
@@ -741,6 +880,9 @@
 
       // ---------- wiring ----------
       document.getElementById('goEntry').addEventListener('click', openEntry);
+      document.getElementById('goSummary').addEventListener('click', openSummary);
+      document.getElementById('smPrev').addEventListener('click', () => shiftMonth(-1));
+      document.getElementById('smNext').addEventListener('click', () => shiftMonth(1));
       document.getElementById('goReconcile').addEventListener('click', openReconcile);
       document.getElementById('goTransfer').addEventListener('click', openTransfer);
       document.getElementById('goCreate').addEventListener('click', openCreate);
