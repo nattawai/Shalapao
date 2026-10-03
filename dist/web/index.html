@@ -422,21 +422,27 @@
       let entryType = 'out'; // ดีฟอลต์เงินออก · โค้ดใส่เครื่องหมายเอง ผู้ใช้ไม่พิมพ์ลบ
       let entryDateTouched = false;
 
-      async function openEntry() {
+      function openEntry() {
         if (pocketsCache.length === 0) { showBanner('ยังไม่มีกระเป๋า — สร้างกระเป๋าก่อนจึงจะเพิ่มรายการได้'); return; }
         entryType = 'out';
         for (const b of document.querySelectorAll('#enSeg button')) b.classList.toggle('active', b.dataset.type === 'out');
         fillPocketOptions(document.getElementById('enPocket'), null);
-        // โหลดหมวดเคยพลาด → ลองอีกครั้ง (พลาดซ้ำ cache ว่าง → เหลือ "ไม่ระบุหมวด"/"+ หมวดใหม่…" จดต่อได้)
-        if (categoriesLoadFailed) await loadCategories().catch(() => {});
-        fillCategoryOptions('');
+        fillCategoryOptions(''); // ตั้งต้นจาก cache ปัจจุบัน (อาจเหลือแค่ "ไม่ระบุหมวด"/"+ หมวดใหม่…" ถ้าเคยพลาด)
         lastCategoryValue = '';
         document.getElementById('enBaht').value = '';
         document.getElementById('enNote').value = '';
         document.getElementById('enDate').value = todayBangkok();
         entryDateTouched = false;
         document.getElementById('enError').textContent = '';
-        show('screen-entry');
+        show('screen-entry'); // 🔴 หน้าต้องขึ้นทันทีที่กด — api() ไม่มี timeout ถ้า await ไว้จะดูเหมือนแอปค้าง
+
+        // โหลดหมวดเคยพลาด → ลองอีกครั้งเบื้องหลัง (ไม่ await) · สำเร็จแล้วเติม dropdown เฉพาะตอนผู้ใช้
+        // ยังไม่ได้เลือก (value ยัง '') ไม่งั้นจะไปล้างหมวดที่เขาเพิ่งเลือกระหว่างรอ
+        if (categoriesLoadFailed) {
+          loadCategories().then(() => {
+            if (document.getElementById('enCategory').value === '') fillCategoryOptions('');
+          }).catch(() => {});
+        }
       }
 
       // เลือก "+ หมวดใหม่…" → prompt ถามชื่อ → สร้างแล้วเลือกให้เลย กรอกเงินต่อได้ทันที
