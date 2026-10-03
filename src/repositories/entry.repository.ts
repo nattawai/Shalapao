@@ -176,6 +176,10 @@ function mapCounterpart(row: CounterpartRow): EntryCounterpart {
 //    ถ้าแถวนี้ยังอยู่ ขาคู่ก็ยังอยู่เสมอ การกรองจึงไม่เปลี่ยนผลแต่เพิ่มความซับซ้อน
 // 🔴 ต้อง bind userId เพิ่มหนึ่งตัวสำหรับ cm.user_id (วาง ? ไว้ก่อน placeholder ของ WHERE)
 const COUNTERPART_SELECT = 'cp.id AS counterpart_pocket_id, cp.name AS counterpart_pocket_name';
+// 🔴 ข้อสมมติ "transfer มี 2 ขา" (ทำให้ได้ขาคู่แถวเดียว) จะพังถ้าทำฟีเจอร์ "โยกไปหลายกระเป๋าใน
+// ครั้งเดียว" (BACKLOG 2026-09-30) แบบใช้ transfer_id เดียวต่อหลายขา — ตอนนั้น LEFT JOIN นี้จะคืน
+// ขาคู่หลายแถว ทำให้แถวรายการ "ซ้ำ" ในหน้าเดินบัญชี ไม่ใช่แค่ counterpart ผิด แต่ยอดที่ผู้ใช้เห็น
+// จะเกินจริง · ทางเลี่ยงตอนนั้น: ออกแบบเป็น transfer แยกกันต่อปลายทาง หรือเติม GROUP BY/LIMIT ที่นี่
 const COUNTERPART_JOIN = `
   LEFT JOIN entry other      ON other.transfer_id = e.transfer_id AND other.id <> e.id
   LEFT JOIN pocket_member cm ON cm.pocket_id = other.pocket_id AND cm.user_id = ? AND cm.left_at IS NULL
