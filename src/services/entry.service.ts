@@ -5,7 +5,9 @@ import {
   listEntries as repoListEntries,
   listSubtreeEntries as repoListSubtreeEntries,
   replaceEntry as repoReplaceEntry,
+  summarizeByCategory as repoSummarizeByCategory,
   updateEntryLabels as repoUpdateEntryLabels,
+  type CategorySummary,
   type CreateEntryInput,
   type CreateTransferInput,
   type Entry,
@@ -37,6 +39,10 @@ export function listEntries(db: D1Database, userId: string, pocketId: string): P
 
 export function listSubtreeEntries(db: D1Database, userId: string, pocketId: string): Promise<EntryWithPocket[]> {
   return repoListSubtreeEntries(db, userId, pocketId);
+}
+
+export function summarizeByCategory(db: D1Database, userId: string, from: string, to: string): Promise<CategorySummary> {
+  return repoSummarizeByCategory(db, userId, from, to);
 }
 
 export function deleteEntry(db: D1Database, userId: string, entryId: string): Promise<void> {

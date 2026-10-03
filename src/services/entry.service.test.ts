@@ -1,6 +1,6 @@
 import { describe, expect, test, vi } from 'vitest';
 import * as entryRepo from '../repositories/entry.repository';
-import { createEntry, createTransfer, deleteEntry, listEntries, replaceEntry, updateEntryLabels } from './entry.service';
+import { createEntry, createTransfer, deleteEntry, listEntries, replaceEntry, summarizeByCategory, updateEntryLabels } from './entry.service';
 
 // entry.service เป็น forwarder — invariant ทั้งหมด (append-only · งวดกระทบยอด · amount>0
 // · from≠to · สิทธิ์) อยู่ที่ repository และโยนเป็น typed error แล้ว · route แปลงเป็น HTTP
@@ -11,7 +11,8 @@ vi.mock('../repositories/entry.repository', () => ({
   listEntries: vi.fn(),
   deleteEntry: vi.fn(),
   updateEntryLabels: vi.fn(),
-  replaceEntry: vi.fn()
+  replaceEntry: vi.fn(),
+  summarizeByCategory: vi.fn()
 }));
 
 const db = {} as D1Database;
@@ -62,6 +63,14 @@ describe('entry.service (forwarder)', () => {
     const input = { pocketId: 'p1', amountSatang: -5000, occurredOn: '2026-03-10' };
     const out = await replaceEntry(db, 'u1', 'e1', input);
     expect(entryRepo.replaceEntry).toHaveBeenCalledWith(db, 'u1', 'e1', input);
+    expect(out).toBe(made);
+  });
+
+  test('summarizeByCategory ส่ง from/to ต่อ · คืนผลตรง ๆ', async () => {
+    const made = { rows: [], uncategorized: { inflowSatang: 0, outflowSatang: 0, entryCount: 0 }, totalInflowSatang: 0, totalOutflowSatang: 0 };
+    vi.mocked(entryRepo.summarizeByCategory).mockResolvedValue(made as never);
+    const out = await summarizeByCategory(db, 'u1', '2026-10-01', '2026-10-31');
+    expect(entryRepo.summarizeByCategory).toHaveBeenCalledWith(db, 'u1', '2026-10-01', '2026-10-31');
     expect(out).toBe(made);
   });
 
