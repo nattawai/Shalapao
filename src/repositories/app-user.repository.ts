@@ -107,3 +107,99 @@ export async function deleteAccount(db: D1Database, userId: string): Promise<voi
 
   await db.batch(ops);
 }
+
+// สำเนาข้อมูลของผู้ใช้ทั้งหมด (PDPA — สิทธิเข้าถึงข้อมูล) · ดิบตามที่เก็บจริง ไม่คำนวณ/ไม่แปลงหน่วย
+// ยอดคงเป็นสตางค์จำนวนเต็ม (amountUnit บอกหน่วย) · ไม่ใส่ยอด balance (ค่า derived — ไฟล์เดียวมีเลข
+// สองชุดที่อาจไม่ตรงกันแล้วไม่รู้เชื่ออันไหน · หลักเดียวกับที่ไม่เก็บยอดในคอลัมน์)
+//
+// 🔴 entries กรองด้วย created_by_user_id = ผู้ใช้ ไม่ใช่ membership — "ขอสำเนาข้อมูลตัวเอง" ไม่ใช่
+// "ขอทุกอย่างที่มองเห็น" · กระเป๋าร่วม (v3) รายการของคนอื่นในกระเป๋าที่เราเห็นต้องไม่หลุดออกไป
+// รวมแถวที่ลบแล้ว (deleted_at ไม่ null) ด้วย — เรายังเก็บมันอยู่ จึงต้องบอกว่าเก็บอยู่
+// memberships เฉพาะแถวของผู้ใช้ · pockets ส่งเฉพาะคอลัมน์ของ pocket (ไม่มี field บอกว่าใครอยู่ในนั้น)
+//
+// 🔴 ข้อจำกัดที่รู้ตัว: ไม่มี pagination — ผู้ใช้ที่มีรายการหลักหมื่นจะได้ก้อนเดียวใหญ่มาก · ถ้าวันหนึ่ง
+// ชน response size limit ของ Workers/D1 ต้องเปลี่ยนเป็น stream หรือแบ่งหน้า · ยังไม่แก้ตอนนี้
+export type AccountExport = {
+  exportedAt: string;
+  amountUnit: 'satang';
+  user: Record<string, unknown> | null;
+  categories: Record<string, unknown>[];
+  pockets: Record<string, unknown>[];
+  memberships: Record<string, unknown>[];
+  entries: Record<string, unknown>[];
+  reconciles: Record<string, unknown>[];
+};
+
+export async function exportAccount(db: D1Database, userId: string): Promise<AccountExport> {
+  const batch = await db.batch([
+    db.prepare('SELECT id, line_user_id, google_sub, display_name, created_at FROM app_user WHERE id = ?').bind(userId),
+    db.prepare('SELECT id, name, icon, sort_order, archived_at, created_at FROM category WHERE user_id = ? ORDER BY sort_order, id').bind(userId),
+    db
+      .prepare(
+        `SELECT p.id, p.parent_id, p.name, p.kind, p.category_id, p.sort_order, p.last_reconciled_at, p.archived_at, p.created_at
+         FROM pocket p JOIN pocket_member m ON m.pocket_id = p.id
+         WHERE m.user_id = ? AND m.left_at IS NULL
+         ORDER BY p.sort_order, p.id`
+      )
+      .bind(userId),
+    db.prepare('SELECT pocket_id, user_id, role, joined_at, left_at FROM pocket_member WHERE user_id = ? ORDER BY pocket_id').bind(userId),
+    db
+      .prepare(
+        `SELECT id, pocket_id, created_by_user_id, amount_satang, occurred_on, category_id, note, source,
+                transfer_id, reverses_id, deleted_at, updated_at, created_at
+         FROM entry WHERE created_by_user_id = ? ORDER BY occurred_on, id`
+      )
+      .bind(userId),
+    db
+      .prepare(
+        `SELECT id, pocket_id, reconciled_by, as_of_date, expected_satang, actual_satang,
+                adjustment_id, previous_line, cancelled_at, created_at
+         FROM pocket_reconcile WHERE reconciled_by = ? ORDER BY created_at, id`
+      )
+      .bind(userId)
+  ]);
+  const rows = (i: number): Record<string, unknown>[] => (batch[i]?.results ?? []) as Record<string, unknown>[];
+
+  const userRow = rows(0)[0];
+  return {
+    exportedAt: nowIso(),
+    amountUnit: 'satang',
+    user: userRow ? mapUser(userRow) : null,
+    categories: rows(1).map(mapCategory),
+    pockets: rows(2).map(mapPocket),
+    memberships: rows(3).map(mapMembership),
+    entries: rows(4).map(mapEntry),
+    reconciles: rows(5).map(mapReconcile)
+  };
+}
+
+const s = (v: unknown): unknown => v; // ส่งค่าตามจริง (รวม null) — camelCase คือการเปลี่ยนแค่ชื่อ field
+function mapUser(r: Record<string, unknown>) {
+  return { id: s(r.id), lineUserId: s(r.line_user_id), googleSub: s(r.google_sub), displayName: s(r.display_name), createdAt: s(r.created_at) };
+}
+function mapCategory(r: Record<string, unknown>) {
+  return { id: s(r.id), name: s(r.name), icon: s(r.icon), sortOrder: s(r.sort_order), archivedAt: s(r.archived_at), createdAt: s(r.created_at) };
+}
+function mapPocket(r: Record<string, unknown>) {
+  return {
+    id: s(r.id), parentId: s(r.parent_id), name: s(r.name), kind: s(r.kind), categoryId: s(r.category_id),
+    sortOrder: s(r.sort_order), lastReconciledAt: s(r.last_reconciled_at), archivedAt: s(r.archived_at), createdAt: s(r.created_at)
+  };
+}
+function mapMembership(r: Record<string, unknown>) {
+  return { pocketId: s(r.pocket_id), userId: s(r.user_id), role: s(r.role), joinedAt: s(r.joined_at), leftAt: s(r.left_at) };
+}
+function mapEntry(r: Record<string, unknown>) {
+  return {
+    id: s(r.id), pocketId: s(r.pocket_id), createdByUserId: s(r.created_by_user_id), amountSatang: s(r.amount_satang),
+    occurredOn: s(r.occurred_on), categoryId: s(r.category_id), note: s(r.note), source: s(r.source),
+    transferId: s(r.transfer_id), reversesId: s(r.reverses_id), deletedAt: s(r.deleted_at), updatedAt: s(r.updated_at), createdAt: s(r.created_at)
+  };
+}
+function mapReconcile(r: Record<string, unknown>) {
+  return {
+    id: s(r.id), pocketId: s(r.pocket_id), reconciledBy: s(r.reconciled_by), asOfDate: s(r.as_of_date),
+    expectedSatang: s(r.expected_satang), actualSatang: s(r.actual_satang), adjustmentId: s(r.adjustment_id),
+    previousLine: s(r.previous_line), cancelledAt: s(r.cancelled_at), createdAt: s(r.created_at)
+  };
+}
