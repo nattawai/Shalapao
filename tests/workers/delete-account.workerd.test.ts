@@ -131,6 +131,30 @@ describe('DELETE /api/me', () => {
     expect((await del(alice)).status).toBe(204);
   });
 
+  // 🔴 D1 จำกัด bound parameter 100 ตัว/query — ผู้ใช้กระเป๋าเกิน 100 ใบต้องลบบัญชีได้ (สิทธิ PDPA)
+  test('ผู้ใช้ที่มี 150 กระเป๋า ลบบัญชีได้ · เหลือ 0 แถวทุกตาราง', async () => {
+    await createPocket(alice, 'bulk-0'); // สร้าง Alice ใน app_user + กระเป๋าแรก
+    const aliceId = await appUserId(alice);
+    await addEntry(alice, (await db.prepare("SELECT id FROM pocket WHERE name = 'bulk-0'").first<{ id: string }>())!.id, 1000);
+
+    const inserts: D1PreparedStatement[] = [];
+    for (let i = 1; i < 150; i++) {
+      const pid = newId();
+      inserts.push(db.prepare("INSERT INTO pocket (id, name, kind, sort_order, created_at) VALUES (?, ?, 'holds_balance', 0, ?)").bind(pid, 'bulk-' + i, nowIso()));
+      inserts.push(db.prepare("INSERT INTO pocket_member (pocket_id, user_id, role, joined_at) VALUES (?, ?, 'owner', ?)").bind(pid, aliceId, nowIso()));
+    }
+    await db.batch(inserts);
+    expect(await count("SELECT COUNT(*) AS n FROM pocket WHERE name LIKE 'bulk-%'")).toBe(150);
+
+    const res = await del(alice);
+    expect(res.status).toBe(204);
+
+    expect(await count("SELECT COUNT(*) AS n FROM pocket WHERE name LIKE 'bulk-%'")).toBe(0);
+    expect(await count('SELECT COUNT(*) AS n FROM app_user WHERE id = ?', aliceId)).toBe(0);
+    expect(await count('SELECT COUNT(*) AS n FROM pocket_member WHERE user_id = ?', aliceId)).toBe(0);
+    expect(await count('SELECT COUNT(*) AS n FROM entry WHERE created_by_user_id = ?', aliceId)).toBe(0);
+  });
+
   // 🔴 กระเป๋าที่มี active คนอื่น → ไม่ลบกระเป๋า/entry · แค่ตั้ง left_at (จัดฉากกระเป๋าร่วม v3 ด้วย SQL)
   test('กระเป๋าร่วม → Alice ออก (left_at) แต่กระเป๋า+entry อยู่ · Bob ยอดเท่าเดิม', async () => {
     const shared = await createPocket(bob, 'กระเป๋าร่วม');

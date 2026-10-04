@@ -39,40 +39,31 @@ export async function upsertUserByLineId(
 // กระเป๋าที่ยังมี active คนอื่น → แค่ตั้ง left_at ของผู้ใช้นี้ ห้ามลบกระเป๋า/entry ในนั้น
 // (ลบ entry ของคนที่ออกไป = ยอดของสมาชิกที่เหลือเพี้ยนทันทีโดยเขาไม่รู้ตัว)
 //
-// 🔴 คำนวณ id ของ solo pocket ด้วย SELECT ก่อน แล้ว bind เป็นค่าคงที่ — ห้ามให้ batch คิด "solo"
-// ใหม่กลางคัน เพราะ solo นิยามจาก pocket_member ของผู้ใช้ ซึ่ง batch กำลังจะแก้ (ลบ/ตั้ง left_at)
+// 🔴 หา solo ด้วย subquery ใน SQL ไม่ใช่ bind id ทีละใบ — D1 จำกัด bound parameter 100 ตัว/query
+// ผู้ใช้ที่มีกระเป๋าเกิน 100 ใบจะลบบัญชีไม่ได้ (และนี่คือ endpoint สิทธิ PDPA ต้องไม่พัง) · subquery
+// ใช้ param คงที่ (แค่ userId) ไม่ว่ากี่ใบ
+//
+// 🔴 D1 บังคับ FK (ยืนยันแล้วว่า Miniflare บังคับ) → ต้องลบ pocket_member "ก่อน" pocket (member → pocket)
+// แต่ subquery หา solo อ่านจาก pocket_member — พอลบ member แล้ว subquery จะว่าง ใช้กับ DELETE pocket
+// ไม่ได้ · จึงลบ pocket ด้วย predicate "ไม่มีสมาชิกเหลือแล้ว" (กระเป๋าจะไร้สมาชิกได้เฉพาะ solo ที่เพิ่ง
+// ลบ member ไป — กระเป๋าร่วมยังมีสมาชิกคนอื่น · ทุกกระเป๋าถูกสร้างพร้อมสมาชิกเสมอ จึงไม่มีใบอื่นโดนพลอย)
+// ลำดับ: reconcile → entry → (left_at ร่วม) → pocket_member(solo) → pocket(ไร้สมาชิก) → category → app_user
 export async function deleteAccount(db: D1Database, userId: string): Promise<void> {
-  const { results } = await db
-    .prepare(
-      `SELECT pm.pocket_id AS pocket_id,
-              EXISTS(SELECT 1 FROM pocket_member o
-                     WHERE o.pocket_id = pm.pocket_id AND o.user_id <> ? AND o.left_at IS NULL) AS shared
-       FROM pocket_member pm
-       WHERE pm.user_id = ? AND pm.left_at IS NULL`
-    )
-    .bind(userId, userId)
-    .all<{ pocket_id: string; shared: number }>();
-  const soloIds = results.filter((r) => r.shared === 0).map((r) => r.pocket_id);
-  const sharedIds = results.filter((r) => r.shared !== 0).map((r) => r.pocket_id);
-  const marks = (ids: string[]) => ids.map(() => '?').join(', ');
+  const now = nowIso();
+  const solo = `SELECT pm.pocket_id FROM pocket_member pm
+    WHERE pm.user_id = ? AND pm.left_at IS NULL
+      AND NOT EXISTS (SELECT 1 FROM pocket_member o WHERE o.pocket_id = pm.pocket_id AND o.user_id <> ? AND o.left_at IS NULL)`;
 
-  const ops: D1PreparedStatement[] = [];
-  if (soloIds.length > 0) {
-    // ลำดับตาม FK (child→parent): pocket_reconcile.adjustment_id → entry · entry → pocket/category/app_user
-    // · pocket_member → pocket · ต้องลบ reconcile ก่อน entry ก่อน pocket เสมอ
-    ops.push(db.prepare(`DELETE FROM pocket_reconcile WHERE pocket_id IN (${marks(soloIds)})`).bind(...soloIds));
-    ops.push(db.prepare(`DELETE FROM entry WHERE pocket_id IN (${marks(soloIds)})`).bind(...soloIds));
-    ops.push(db.prepare(`DELETE FROM pocket_member WHERE pocket_id IN (${marks(soloIds)})`).bind(...soloIds));
-    ops.push(db.prepare(`DELETE FROM pocket WHERE id IN (${marks(soloIds)})`).bind(...soloIds));
-  }
-  if (sharedIds.length > 0) {
-    const now = nowIso();
-    ops.push(
-      db
-        .prepare(`UPDATE pocket_member SET left_at = ? WHERE user_id = ? AND left_at IS NULL AND pocket_id IN (${marks(sharedIds)})`)
-        .bind(now, userId, ...sharedIds)
-    );
-  }
+  const ops: D1PreparedStatement[] = [
+    db.prepare(`DELETE FROM pocket_reconcile WHERE pocket_id IN (${solo})`).bind(userId, userId),
+    db.prepare(`DELETE FROM entry WHERE pocket_id IN (${solo})`).bind(userId, userId),
+    // กระเป๋าร่วม (NOT solo) ของผู้ใช้นี้ → ตั้ง left_at · อ่าน pocket_member ก่อน member solo ถูกลบ
+    db
+      .prepare(`UPDATE pocket_member SET left_at = ? WHERE user_id = ? AND left_at IS NULL AND pocket_id NOT IN (${solo})`)
+      .bind(now, userId, userId, userId),
+    db.prepare(`DELETE FROM pocket_member WHERE pocket_id IN (${solo})`).bind(userId, userId),
+    db.prepare('DELETE FROM pocket WHERE NOT EXISTS (SELECT 1 FROM pocket_member m WHERE m.pocket_id = pocket.id)')
+  ];
 
   // ลบหมวดของผู้ใช้เฉพาะที่ไม่มี entry (ที่เหลืออยู่) อ้างถึง · ที่ถูก entry ในกระเป๋าร่วมอ้างจะไม่ถูกลบ
   // 🔴 ผลคือ entry นั้นกลายเป็น "ไม่ระบุหมวด" ตอนอ่าน (LEFT JOIN category ไม่เจอ) — ยอมรับได้
