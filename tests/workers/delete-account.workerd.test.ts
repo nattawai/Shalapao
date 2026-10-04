@@ -46,8 +46,9 @@ beforeEach(() => {
   bob = newId();
 });
 
-async function createPocket(user: string, name: string): Promise<string> {
-  const res = await app.request('/api/pockets', as(user, { method: 'POST', body: JSON.stringify({ name }) }), runEnv);
+async function createPocket(user: string, name: string, parentId?: string): Promise<string> {
+  const body = parentId !== undefined ? { name, parentId } : { name };
+  const res = await app.request('/api/pockets', as(user, { method: 'POST', body: JSON.stringify(body) }), runEnv);
   return ((await res.json()) as { pocket: { id: string } }).pocket.id;
 }
 async function createCategory(user: string, name: string): Promise<string> {
@@ -151,6 +152,29 @@ describe('DELETE /api/me', () => {
 
     expect(await count("SELECT COUNT(*) AS n FROM pocket WHERE name LIKE 'bulk-%'")).toBe(0);
     expect(await count('SELECT COUNT(*) AS n FROM app_user WHERE id = ?', aliceId)).toBe(0);
+    expect(await count('SELECT COUNT(*) AS n FROM pocket_member WHERE user_id = ?', aliceId)).toBe(0);
+    expect(await count('SELECT COUNT(*) AS n FROM entry WHERE created_by_user_id = ?', aliceId)).toBe(0);
+  });
+
+  // 🔴 กระเป๋าซ้อนชั้น (แม่-ลูก-หลาน) — ข้อมูลจริงของเจ้าของเป็นแบบนี้ · FK pocket.parent_id → pocket
+  // ลบแม่ก่อนลูกต้องไม่ชน FK · ต้องลบได้ครบ เหลือ 0 แถวทุกตาราง
+  test('กระเป๋าซ้อนชั้น (แม่ 1 · ลูก 3 · หลาน 1) solo + มี entry ทุกใบ → ลบได้ · 0 แถวทุกตาราง', async () => {
+    const parent = await createPocket(alice, 'nest-parent');
+    const c1 = await createPocket(alice, 'nest-c1', parent);
+    const c2 = await createPocket(alice, 'nest-c2', parent);
+    const c3 = await createPocket(alice, 'nest-c3', parent);
+    const grand = await createPocket(alice, 'nest-grand', c1);
+    const cat = await createCategory(alice, 'nest-cat');
+    for (const p of [parent, c1, c2, c3, grand]) await addEntry(alice, p, 1000, cat);
+    const aliceId = await appUserId(alice);
+    expect(await count("SELECT COUNT(*) AS n FROM pocket WHERE name LIKE 'nest-%'")).toBe(5);
+
+    const res = await del(alice);
+    expect(res.status).toBe(204);
+
+    expect(await count("SELECT COUNT(*) AS n FROM pocket WHERE name LIKE 'nest-%'")).toBe(0);
+    expect(await count('SELECT COUNT(*) AS n FROM app_user WHERE id = ?', aliceId)).toBe(0);
+    expect(await count('SELECT COUNT(*) AS n FROM category WHERE user_id = ?', aliceId)).toBe(0);
     expect(await count('SELECT COUNT(*) AS n FROM pocket_member WHERE user_id = ?', aliceId)).toBe(0);
     expect(await count('SELECT COUNT(*) AS n FROM entry WHERE created_by_user_id = ?', aliceId)).toBe(0);
   });
