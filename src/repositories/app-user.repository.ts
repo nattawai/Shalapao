@@ -173,33 +173,32 @@ export async function exportAccount(db: D1Database, userId: string): Promise<Acc
   };
 }
 
-const s = (v: unknown): unknown => v; // ส่งค่าตามจริง (รวม null) — camelCase คือการเปลี่ยนแค่ชื่อ field
 function mapUser(r: Record<string, unknown>) {
-  return { id: s(r.id), lineUserId: s(r.line_user_id), googleSub: s(r.google_sub), displayName: s(r.display_name), createdAt: s(r.created_at) };
+  return { id: r.id, lineUserId: r.line_user_id, googleSub: r.google_sub, displayName: r.display_name, createdAt: r.created_at };
 }
 function mapCategory(r: Record<string, unknown>) {
-  return { id: s(r.id), name: s(r.name), icon: s(r.icon), sortOrder: s(r.sort_order), archivedAt: s(r.archived_at), createdAt: s(r.created_at) };
+  return { id: r.id, name: r.name, icon: r.icon, sortOrder: r.sort_order, archivedAt: r.archived_at, createdAt: r.created_at };
 }
 function mapPocket(r: Record<string, unknown>) {
   return {
-    id: s(r.id), parentId: s(r.parent_id), name: s(r.name), kind: s(r.kind), categoryId: s(r.category_id),
-    sortOrder: s(r.sort_order), lastReconciledAt: s(r.last_reconciled_at), archivedAt: s(r.archived_at), createdAt: s(r.created_at)
+    id: r.id, parentId: r.parent_id, name: r.name, kind: r.kind, categoryId: r.category_id,
+    sortOrder: r.sort_order, lastReconciledAt: r.last_reconciled_at, archivedAt: r.archived_at, createdAt: r.created_at
   };
 }
 function mapMembership(r: Record<string, unknown>) {
-  return { pocketId: s(r.pocket_id), userId: s(r.user_id), role: s(r.role), joinedAt: s(r.joined_at), leftAt: s(r.left_at) };
+  return { pocketId: r.pocket_id, userId: r.user_id, role: r.role, joinedAt: r.joined_at, leftAt: r.left_at };
 }
 function mapEntry(r: Record<string, unknown>) {
   return {
-    id: s(r.id), pocketId: s(r.pocket_id), createdByUserId: s(r.created_by_user_id), amountSatang: s(r.amount_satang),
-    occurredOn: s(r.occurred_on), categoryId: s(r.category_id), note: s(r.note), source: s(r.source),
-    transferId: s(r.transfer_id), reversesId: s(r.reverses_id), deletedAt: s(r.deleted_at), updatedAt: s(r.updated_at), createdAt: s(r.created_at)
+    id: r.id, pocketId: r.pocket_id, createdByUserId: r.created_by_user_id, amountSatang: r.amount_satang,
+    occurredOn: r.occurred_on, categoryId: r.category_id, note: r.note, source: r.source,
+    transferId: r.transfer_id, reversesId: r.reverses_id, deletedAt: r.deleted_at, updatedAt: r.updated_at, createdAt: r.created_at
   };
 }
 function mapReconcile(r: Record<string, unknown>) {
   return {
-    id: s(r.id), pocketId: s(r.pocket_id), reconciledBy: s(r.reconciled_by), asOfDate: s(r.as_of_date),
-    expectedSatang: s(r.expected_satang), actualSatang: s(r.actual_satang), adjustmentId: s(r.adjustment_id),
-    previousLine: s(r.previous_line), cancelledAt: s(r.cancelled_at), createdAt: s(r.created_at)
+    id: r.id, pocketId: r.pocket_id, reconciledBy: r.reconciled_by, asOfDate: r.as_of_date,
+    expectedSatang: r.expected_satang, actualSatang: r.actual_satang, adjustmentId: r.adjustment_id,
+    previousLine: r.previous_line, cancelledAt: r.cancelled_at, createdAt: r.created_at
   };
 }
