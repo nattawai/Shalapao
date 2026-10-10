@@ -7,7 +7,6 @@ import { entryRoutes, transferRoutes } from './routes/entry.route';
 import { httpError } from './routes/http-error';
 import { deleteMe, exportMe, me } from './routes/me.route';
 import { pocketRoutes } from './routes/pocket.route';
-import { reconcileRoutes } from './routes/reconcile.route';
 import { summaryRoutes } from './routes/summary.route';
 import { upsertUserByLineId } from './repositories/app-user.repository';
 
@@ -48,7 +47,6 @@ app.get('/api/me/export', exportMe);
 app.delete('/api/me', deleteMe);
 
 app.route('/api/pockets', pocketRoutes);
-app.route('/api/pockets', reconcileRoutes);
 app.route('/api/categories', categoryRoutes);
 app.route('/api/entries', entryRoutes);
 app.route('/api/transfers', transferRoutes);
