@@ -1,7 +1,7 @@
 import { env } from 'cloudflare:test';
 import { beforeEach, describe, expect, test } from 'vitest';
 import { newId, nowIso } from '../domain/id';
-import { createPocket, getPocket, getRollupBalanceAsOf, listPockets } from './pocket.repository';
+import { createPocket, getPocket, listPockets } from './pocket.repository';
 
 const db = env.DB;
 
@@ -132,21 +132,3 @@ describe('rollup — ยอดแม่ = ยอดตัวเอง + ลู�
   });
 });
 
-describe('getRollupBalanceAsOf — rollup ณ วัน (สำหรับ reconcile)', () => {
-  test('รวมลูกทุกชั้น แต่ไม่รวม entry ที่ occurred_on หลัง asOfDate', async () => {
-    const parent = await createPocket(db, alice, { name: 'Make', kind: 'holds_balance' });
-    const child = await createPocket(db, alice, { name: 'Mobile', kind: 'holds_balance', parentId: parent.id });
-    await insertEntry(parent.id, alice, 50000, '2026-03-10');
-    await insertEntry(child.id, alice, 100000, '2026-03-15');
-    await insertEntry(child.id, alice, 999999, '2026-03-16'); // หลังเส้น — ต้องไม่นับ
-
-    expect(await getRollupBalanceAsOf(db, alice, parent.id, '2026-03-15')).toBe(150000);
-  });
-
-  // 🔴 point-in-time rollup ก็ต้องกันรั่วข้ามผู้ใช้เหมือนกัน
-  test('ไม่นับลูกที่ผู้ใช้ไม่ได้เป็นสมาชิก', async () => {
-    const parent = await createPocket(db, alice, { name: 'Make', kind: 'holds_balance' });
-    await insertForeignChild(parent.id, bob, 999999);
-    expect(await getRollupBalanceAsOf(db, alice, parent.id, '2026-03-20')).toBe(0);
-  });
-});

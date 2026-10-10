@@ -1,7 +1,6 @@
 import { ConflictError, ForbiddenError } from '../domain/errors';
 import { newId, nowIso } from '../domain/id';
 import { satangToBaht } from '../domain/money';
-import { getEntry, type Entry } from './entry.repository';
 
 export type PocketKind = 'holds_balance' | 'flow_through';
 export type MemberRole = 'owner' | 'editor' | 'viewer';
@@ -13,7 +12,6 @@ export type PocketWithBalance = {
   kind: PocketKind;
   categoryId: string | null;
   sortOrder: number;
-  lastReconciledAt: string | null;
   archivedAt: string | null;
   createdAt: string;
   role: MemberRole;
@@ -42,7 +40,6 @@ type PocketRow = {
   kind: PocketKind;
   category_id: string | null;
   sort_order: number;
-  last_reconciled_at: string | null;
   archived_at: string | null;
   created_at: string;
   role: MemberRole;
@@ -63,7 +60,7 @@ type PocketRow = {
 const SELECT_MEMBER_POCKET = `
   SELECT
     p.id, p.parent_id, p.name, p.kind, p.category_id, p.sort_order,
-    p.last_reconciled_at, p.archived_at, p.created_at,
+    p.archived_at, p.created_at,
     m.role,
     b.balance_satang, b.entry_count, b.last_entry_on,
     COALESCE((
@@ -87,7 +84,6 @@ function mapRow(row: PocketRow): PocketWithBalance {
     kind: row.kind,
     categoryId: row.category_id,
     sortOrder: row.sort_order,
-    lastReconciledAt: row.last_reconciled_at,
     archivedAt: row.archived_at,
     createdAt: row.created_at,
     role: row.role,
@@ -124,28 +120,6 @@ export async function getPocket(
   return row ? mapRow(row) : null;
 }
 
-// ยอด rollup ณ สิ้นวัน asOfDate (ยอดตัวเอง + ลูกทุกชั้น) — reconcile กระเป๋าแม่ใช้เทียบกับธนาคาร
-// ไล่ต้นไม้จาก pocket_subtree · 🔴 กรอง pocket_member ของผู้ใช้คนนี้ก่อน SUM (ลูกที่ไม่ได้เป็น
-// สมาชิกไม่ถูกนับ) · occurred_on <= asOfDate ตัดรายการวันหลัง · SUM ที่ SQL ไม่ดึงมาบวกใน JS
-export async function getRollupBalanceAsOf(
-  db: D1Database,
-  userId: string,
-  pocketId: string,
-  asOfDate: string
-): Promise<number> {
-  const row = await db
-    .prepare(
-      `SELECT COALESCE(SUM(e.amount_satang), 0) AS balance
-       FROM pocket_subtree st
-       JOIN pocket_member m ON m.pocket_id = st.node_id AND m.user_id = ? AND m.left_at IS NULL
-       JOIN entry e ON e.pocket_id = st.node_id AND e.occurred_on <= ? AND e.deleted_at IS NULL
-       WHERE st.root_id = ?`
-    )
-    .bind(userId, asOfDate, pocketId)
-    .first<{ balance: number }>();
-  return row?.balance ?? 0;
-}
-
 export type Summary = {
   totalSatang: number;
   pocketCount: number;
@@ -176,72 +150,6 @@ export async function getSummary(db: D1Database, userId: string): Promise<Summar
     .bind(userId)
     .first<{ total_satang: number; pocket_count: number | null }>();
   return { totalSatang: row?.total_satang ?? 0, pocketCount: row?.pocket_count ?? 0 };
-}
-
-export type ApplyReconcileInput = {
-  pocketId: string;
-  asOfDate: string;
-  diffSatang: number;
-  expectedSatang: number; // ยอดที่ระบบคิด — เก็บลง pocket_reconcile เป็นร่องรอย
-  actualSatang: number; // ยอดจริงจากธนาคาร
-};
-
-// ปิดงวดกระทบยอด: (1) ลงรายการปรับ ถ้า diff ≠ 0 · (2) บันทึกประวัติลง pocket_reconcile ทุกครั้ง
-// (3) เลื่อนเส้น last_reconciled_at — 🔴 ทั้งสามอยู่ใน db.batch เดียว (all-or-nothing)
-//
-// รายการปรับ INSERT ดิบ ไม่ผ่าน createEntry — occurred_on = asOfDate เท่ากับเส้นที่กำลังจะตั้ง
-// assertNotReconciled จะปฏิเสธมันเอง · reconcile คือผู้เขียนรายการปิดงวดที่ได้รับอนุญาตรายเดียว
-// (โค้ดที่อื่นห้ามเลียนแบบ) · INSERT ดิบข้าม auto-filter จึงกันสิทธิ์เองที่นี่เป็นด่านชดเชย
-//
-// 🔴 ต้องอ่าน last_reconciled_at "ก่อน" UPDATE เพื่อเก็บ previous_line — ถ้าอ่านหลัง UPDATE
-// จะได้ค่าใหม่ แล้วการถอย (unreconcile) จะวนกลับที่เดิมตลอดไป
-export async function applyReconcile(
-  db: D1Database,
-  userId: string,
-  input: ApplyReconcileInput
-): Promise<Entry | null> {
-  const member = await db
-    .prepare('SELECT 1 AS ok FROM pocket_member WHERE pocket_id = ? AND user_id = ? AND left_at IS NULL')
-    .bind(input.pocketId, userId)
-    .first<{ ok: number }>();
-  if (!member) throw new ForbiddenError('pocket_forbidden', 'ไม่มีสิทธิ์ในกระเป๋านี้ — ต้องเป็นสมาชิกก่อนจึงจะกระทบยอดได้');
-
-  const prev = await db
-    .prepare('SELECT last_reconciled_at AS line FROM pocket WHERE id = ?')
-    .bind(input.pocketId)
-    .first<{ line: string | null }>();
-  const previousLine = prev?.line ?? null;
-
-  const now = nowIso();
-  const adjustmentId = input.diffSatang === 0 ? null : newId();
-
-  const ops: D1PreparedStatement[] = [];
-  if (adjustmentId !== null) {
-    // ต้องมาก่อน INSERT pocket_reconcile ที่ FK ชี้ไป adjustment_id
-    ops.push(
-      db
-        .prepare(
-          `INSERT INTO entry (id, pocket_id, created_by_user_id, amount_satang, occurred_on, source, created_at)
-           VALUES (?, ?, ?, ?, ?, 'reconcile', ?)`
-        )
-        .bind(adjustmentId, input.pocketId, userId, input.diffSatang, input.asOfDate, now)
-    );
-  }
-  ops.push(
-    db
-      .prepare(
-        `INSERT INTO pocket_reconcile (id, pocket_id, reconciled_by, as_of_date, expected_satang, actual_satang, adjustment_id, previous_line, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      )
-      .bind(newId(), input.pocketId, userId, input.asOfDate, input.expectedSatang, input.actualSatang, adjustmentId, previousLine, now)
-  );
-  ops.push(db.prepare('UPDATE pocket SET last_reconciled_at = ? WHERE id = ?').bind(input.asOfDate, input.pocketId));
-  await db.batch(ops);
-
-  if (adjustmentId === null) return null;
-  const adjustment = await getEntry(db, userId, adjustmentId);
-  if (!adjustment) throw new Error('ลงรายการปรับแล้วอ่านกลับไม่เจอ — ไม่ควรเกิด');
-  return adjustment;
 }
 
 export async function createPocket(
@@ -300,7 +208,7 @@ export type UpdatePocketInput = {
 
 // แก้ได้เฉพาะ name · sortOrder · categoryId · กรองผ่าน pocket_member ที่ active เหมือน query อื่น
 // (ไม่ใช่สมาชิก → ForbiddenError · ไม่มีแถวถูกแตะ) · categoryId ที่ส่งมาต้องเป็นของผู้ใช้คนเดียวกัน
-// (FK เช็คแค่ว่ามีแถว ไม่เช็คเจ้าของ) · ไม่แตะ kind (enum ระบบ) · parentId (มีกฎแยก) · last_reconciled_at
+// (FK เช็คแค่ว่ามีแถว ไม่เช็คเจ้าของ) · ไม่แตะ kind (enum ระบบ) · parentId (มีกฎแยก)
 export async function updatePocket(
   db: D1Database,
   userId: string,
