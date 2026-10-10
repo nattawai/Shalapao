@@ -10,7 +10,6 @@ import { entryRoutes, transferRoutes } from '../../src/routes/entry.route';
 import { httpError } from '../../src/routes/http-error';
 import { pocketRoutes } from '../../src/routes/pocket.route';
 
-const db = env.DB;
 const runEnv = env as unknown as Env;
 
 function makeApp(): Hono<AuthEnv> {
@@ -116,13 +115,6 @@ describe('POST /api/entries', () => {
     expect(res.status).toBe(403);
   });
 
-  test('409 เมื่อลงรายการทับงวดที่กระทบยอดแล้ว', async () => {
-    const p = await createPocket(alice, 'p');
-    await db.prepare('UPDATE pocket SET last_reconciled_at = ? WHERE id = ?').bind('2026-03-15', p).run();
-    const res = await post(alice, '/api/entries', { pocketId: p, amountSatang: 100, occurredOn: '2026-03-15' });
-    expect(res.status).toBe(409);
-    expect(((await res.json()) as { error: string }).error).toBe('reconciled_period');
-  });
 });
 
 describe('DELETE /api/entries/:id', () => {
@@ -148,14 +140,6 @@ describe('DELETE /api/entries/:id', () => {
     expect((await del(alice, id)).status).toBe(403);
   });
 
-  test('409 ลบรายการในงวดที่กระทบยอดแล้ว', async () => {
-    const p = await createPocket(alice, 'p');
-    const id = await entryId(await post(alice, '/api/entries', { pocketId: p, amountSatang: 100, occurredOn: '2026-03-10' }));
-    await db.prepare('UPDATE pocket SET last_reconciled_at = ? WHERE id = ?').bind('2026-03-15', p).run();
-    const res = await del(alice, id);
-    expect(res.status).toBe(409);
-    expect(((await res.json()) as { error: string }).error).toBe('reconciled_period');
-  });
 });
 
 describe('POST /api/transfers', () => {
@@ -218,10 +202,9 @@ describe('GET /api/pockets/:id/entries', () => {
 });
 
 describe('PATCH /api/entries/:id (ป้าย)', () => {
-  test('200 แก้ note ในงวดที่กระทบยอดแล้ว (ไม่แตะตัวเลข/วัน)', async () => {
+  test('200 แก้ note (ไม่แตะตัวเลข/วัน)', async () => {
     const p = await createPocket(alice, 'p');
     const id = await entryId(await post(alice, '/api/entries', { pocketId: p, amountSatang: 100, occurredOn: '2026-03-10' }));
-    await db.prepare('UPDATE pocket SET last_reconciled_at = ? WHERE id = ?').bind('2026-03-15', p).run();
     const res = await app.request(`/api/entries/${id}`, as(alice, { method: 'PATCH', body: JSON.stringify({ note: 'ติดหมวดย้อนหลัง' }) }), runEnv);
     expect(res.status).toBe(200);
     expect(((await res.json()) as { entry: { note: string } }).entry.note).toBe('ติดหมวดย้อนหลัง');
@@ -245,13 +228,6 @@ describe('POST /api/entries/:id/replace (ยอด/วัน/กระเป๋�
     const res = await replace(alice, id, { pocketId: p, amountSatang: -5000, occurredOn: '2026-03-10' });
     expect(res.status).toBe(200);
     expect(((await res.json()) as { entry: { amountSatang: number } }).entry.amountSatang).toBe(-5000);
-  });
-
-  test('409 ย้ายวันเข้าไปในงวดที่กระทบยอดแล้ว', async () => {
-    const p = await createPocket(alice, 'p');
-    const id = await entryId(await post(alice, '/api/entries', { pocketId: p, amountSatang: 100, occurredOn: '2026-03-20' }));
-    await db.prepare('UPDATE pocket SET last_reconciled_at = ? WHERE id = ?').bind('2026-03-15', p).run();
-    expect((await replace(alice, id, { pocketId: p, amountSatang: 100, occurredOn: '2026-03-12' })).status).toBe(409);
   });
 
   test('400 replace ขาโยกเงิน (ให้ลบแล้วโยกใหม่)', async () => {

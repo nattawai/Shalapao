@@ -12,8 +12,8 @@ export const createPocketSchema = z
   })
   .strict();
 
-// แก้ได้เฉพาะ name · sortOrder · categoryId · ปฏิเสธ field ที่ไม่รู้จัก (กัน kind/parentId/
-// lastReconciledAt หลุดเข้ามา) · name trim แล้วต้องไม่ว่างและไม่เกิน 60 · categoryId ล้างได้ (null)
+// แก้ได้เฉพาะ name · sortOrder · categoryId · ปฏิเสธ field ที่ไม่รู้จัก (กัน kind/parentId หลุดเข้ามา)
+// name trim แล้วต้องไม่ว่างและไม่เกิน 60 · categoryId ล้างได้ (null)
 export const patchPocketSchema = z
   .object({
     name: z.string().trim().min(1, 'ชื่อกระเป๋าห้ามว่าง').max(60, 'ชื่อกระเป๋ายาวเกินไป (ไม่เกิน 60 ตัวอักษร)').optional(),

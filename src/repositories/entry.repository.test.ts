@@ -1,6 +1,6 @@
 import { env } from 'cloudflare:test';
 import { beforeEach, describe, expect, test } from 'vitest';
-import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../domain/errors';
+import { ForbiddenError, NotFoundError, ValidationError } from '../domain/errors';
 import { newId, nowIso, today } from '../domain/id';
 import { createEntry, createTransfer, deleteEntry, getEntry, listEntries, replaceEntry, updateEntryLabels } from './entry.repository';
 
@@ -44,20 +44,6 @@ async function countEntries(): Promise<number> {
 async function balanceOf(pocketId: string): Promise<number> {
   const row = await db.prepare('SELECT COALESCE(balance_satang, 0) AS b FROM pocket_balance WHERE pocket_id = ?').bind(pocketId).first<{ b: number }>();
   return row?.b ?? 0;
-}
-
-async function reconcilePocket(pocketId: string, date: string): Promise<void> {
-  await db.prepare('UPDATE pocket SET last_reconciled_at = ? WHERE id = ?').bind(date, pocketId).run();
-}
-
-async function seedChildPocket(userId: string, parentId: string): Promise<string> {
-  const id = newId();
-  const now = nowIso();
-  await db.batch([
-    db.prepare('INSERT INTO pocket (id, parent_id, name, kind, created_at) VALUES (?, ?, ?, ?, ?)').bind(id, parentId, 'child', 'holds_balance', now),
-    db.prepare("INSERT INTO pocket_member (pocket_id, user_id, role, joined_at) VALUES (?, ?, 'owner', ?)").bind(id, userId, now)
-  ]);
-  return id;
 }
 
 let alice: string;
@@ -110,110 +96,7 @@ describe('createEntry / getEntry', () => {
   });
 });
 
-// ข้อตกลงข้อ 6: ห้ามลงรายการทับงวดที่กระทบยอดแล้ว · เส้น (last_reconciled_at)
-// เป็นวันที่ปิดงวดแล้วเสมอ (ห้ามวันนี้/อนาคต — reconcile.service กันตอนตั้งเส้น)
-// occurred_on เท่ากับเส้นพอดี = อยู่ในงวดที่ยืนยันแล้ว → ปฏิเสธ (เกณฑ์คือ <=)
-describe('createEntry — กันลงรายการในงวดที่กระทบยอดแล้ว', () => {
-  test('occurred_on หลังเส้น → ผ่าน', async () => {
-    await reconcilePocket(alicePocket, '2026-03-15');
-    const e = await createEntry(db, alice, { pocketId: alicePocket, amountSatang: 100, occurredOn: '2026-03-16' });
-    expect(e.occurredOn).toBe('2026-03-16');
-  });
-
-  test('occurred_on เท่ากับเส้นพอดี → ปฏิเสธ ไม่มีแถวเกิด', async () => {
-    await reconcilePocket(alicePocket, '2026-03-15');
-    const before = await countEntries();
-    await expect(
-      createEntry(db, alice, { pocketId: alicePocket, amountSatang: 100, occurredOn: '2026-03-15' })
-    ).rejects.toBeInstanceOf(ConflictError);
-    expect(await countEntries()).toBe(before);
-  });
-
-  test('occurred_on ก่อนเส้น → ปฏิเสธ ไม่มีแถวเกิด', async () => {
-    await reconcilePocket(alicePocket, '2026-03-15');
-    const before = await countEntries();
-    await expect(
-      createEntry(db, alice, { pocketId: alicePocket, amountSatang: 100, occurredOn: '2026-03-14' })
-    ).rejects.toThrow();
-    expect(await countEntries()).toBe(before);
-  });
-
-  test('กระเป๋าที่ยังไม่เคยกระทบยอด (เส้น = NULL) → ลงย้อนหลังได้', async () => {
-    const e = await createEntry(db, alice, { pocketId: alicePocket, amountSatang: 100, occurredOn: '2020-01-01' });
-    expect(e.occurredOn).toBe('2020-01-01');
-  });
-});
-
-// reconcile ทำงานระดับ rollup (ยอดแม่ = ตัวเอง + ลูก) · ถ้าลงรายการย้อนหลังในลูก
-// ได้ทั้งที่แม่ปิดงวดไปแล้ว rollup ของแม่ ณ วันปิดจะเปลี่ยน = กระทบยอดเป็นโมฆะเงียบ ๆ
-// ด่านจึงต้องดูเส้นของกระเป๋านี้ + แม่ทุกชั้น แล้วใช้เส้นที่ใหม่ที่สุด
-describe('createEntry — กันลงรายการทับงวดที่แม่กระทบยอดแล้ว', () => {
-  test('แม่กระทบยอดถึง 2026-03-15 → ลงย้อนหลังในลูก → ปฏิเสธ ไม่มีแถวเกิด', async () => {
-    const child = await seedChildPocket(alice, alicePocket);
-    await reconcilePocket(alicePocket, '2026-03-15');
-    const before = await countEntries();
-    await expect(
-      createEntry(db, alice, { pocketId: child, amountSatang: 100, occurredOn: '2026-03-15' })
-    ).rejects.toBeInstanceOf(ConflictError);
-    expect(await countEntries()).toBe(before);
-  });
-
-  test('ลูกลงรายการหลังเส้นของแม่ → ผ่าน', async () => {
-    const child = await seedChildPocket(alice, alicePocket);
-    await reconcilePocket(alicePocket, '2026-03-15');
-    const e = await createEntry(db, alice, { pocketId: child, amountSatang: 100, occurredOn: '2026-03-16' });
-    expect(e.occurredOn).toBe('2026-03-16');
-  });
-
-  // ใช้เส้นที่ใหม่ที่สุดในสายเลือด: ลูกปิดถึง 03-20 แม่ปิดถึง 03-10 → เกณฑ์คือ 03-20
-  test('ใช้เส้นที่ใหม่ที่สุดระหว่างลูกกับแม่', async () => {
-    const child = await seedChildPocket(alice, alicePocket);
-    await reconcilePocket(alicePocket, '2026-03-10');
-    await reconcilePocket(child, '2026-03-20');
-    await expect(
-      createEntry(db, alice, { pocketId: child, amountSatang: 100, occurredOn: '2026-03-18' })
-    ).rejects.toBeInstanceOf(ConflictError);
-  });
-});
-
-describe('createTransfer — กันโยกเข้างวดที่กระทบยอดแล้ว (เช็คทั้งสองกระเป๋า)', () => {
-  test('ต้นทางกระทบยอดถึงวันโอนแล้ว → ปฏิเสธ ไม่มีขาไหนเกิด', async () => {
-    const dest = await seedPocket(alice);
-    await reconcilePocket(alicePocket, '2026-03-15');
-    const before = await countEntries();
-    await expect(
-      createTransfer(db, alice, { fromPocketId: alicePocket, toPocketId: dest, amountSatang: 100, occurredOn: '2026-03-15' })
-    ).rejects.toThrow();
-    expect(await countEntries()).toBe(before);
-  });
-
-  // 🔴 พิสูจน์ว่าเช็ค "ทั้งสอง" กระเป๋า ไม่ใช่แค่ต้นทาง: วางเส้นไว้ที่ปลายทางเท่านั้น
-  test('ปลายทางกระทบยอดถึงวันโอนแล้ว → ปฏิเสธ ไม่มีขาไหนเกิด', async () => {
-    const dest = await seedPocket(alice);
-    await reconcilePocket(dest, '2026-03-15');
-    const before = await countEntries();
-    await expect(
-      createTransfer(db, alice, { fromPocketId: alicePocket, toPocketId: dest, amountSatang: 100, occurredOn: '2026-03-15' })
-    ).rejects.toThrow();
-    expect(await countEntries()).toBe(before);
-  });
-
-  test('เส้นทั้งสองกระเป๋าอยู่ก่อนวันโอน → ผ่าน', async () => {
-    const dest = await seedPocket(alice);
-    await reconcilePocket(alicePocket, '2026-03-15');
-    await reconcilePocket(dest, '2026-03-15');
-    const { outflow, inflow } = await createTransfer(db, alice, {
-      fromPocketId: alicePocket,
-      toPocketId: dest,
-      amountSatang: 100,
-      occurredOn: '2026-03-16'
-    });
-    expect(outflow.amountSatang).toBe(-100);
-    expect(inflow.amountSatang).toBe(100);
-  });
-});
-
-// v0 ลบ = soft delete (deleted_at) เท่านั้น ไม่ทำ reversal · ลบได้เฉพาะงวดที่ยังไม่ปิด
+// v0 ลบ = soft delete (deleted_at) เท่านั้น ไม่ทำ reversal
 describe('deleteEntry', () => {
   test('ลบรายการในงวดที่ยังเปิด → สำเร็จ · ยอดลดลงตามจริง · ไม่โผล่ในลิสต์', async () => {
     const income = await createEntry(db, alice, { pocketId: alicePocket, amountSatang: 50000, occurredOn: '2026-03-10' });
@@ -226,20 +109,6 @@ describe('deleteEntry', () => {
     const list = await listEntries(db, alice, alicePocket);
     expect(list.map((e) => e.id)).toEqual([income.id]);
     expect(await getEntry(db, alice, wrong.id)).toBeNull();
-  });
-
-  test('ลบรายการในงวดที่ปิดแล้ว → 409', async () => {
-    const e = await createEntry(db, alice, { pocketId: alicePocket, amountSatang: 100, occurredOn: '2026-03-10' });
-    await reconcilePocket(alicePocket, '2026-03-15');
-    await expect(deleteEntry(db, alice, e.id)).rejects.toBeInstanceOf(ConflictError);
-    expect(await getEntry(db, alice, e.id)).not.toBeNull(); // ยังอยู่
-  });
-
-  test('ลบรายการในลูกที่งวดของแม่ปิดแล้ว → 409 (ไล่แม่)', async () => {
-    const child = await seedChildPocket(alice, alicePocket);
-    const e = await createEntry(db, alice, { pocketId: child, amountSatang: 100, occurredOn: '2026-03-10' });
-    await reconcilePocket(alicePocket, '2026-03-15');
-    await expect(deleteEntry(db, alice, e.id)).rejects.toBeInstanceOf(ConflictError);
   });
 
   test('ลบรายการที่ลบไปแล้ว → NotFoundError', async () => {
@@ -270,14 +139,6 @@ describe('deleteEntry', () => {
     expect(await listEntries(db, alice, dest)).toHaveLength(0);
   });
 
-  test('ลบขาโยกเงินที่ปลายทางอยู่ในงวดปิดแล้ว → 409 · ไม่มีขาไหนถูกลบ', async () => {
-    const dest = await seedPocket(alice);
-    const { outflow } = await createTransfer(db, alice, { fromPocketId: alicePocket, toPocketId: dest, amountSatang: 30000, occurredOn: '2026-03-02' });
-    await reconcilePocket(dest, '2026-03-15'); // ปลายทางปิดงวดคลุมวันโอน
-    await expect(deleteEntry(db, alice, outflow.id)).rejects.toBeInstanceOf(ConflictError);
-    expect(await balanceOf(alicePocket)).toBe(-30000);
-    expect(await balanceOf(dest)).toBe(30000); // ทั้งสองขายังอยู่
-  });
 });
 
 describe('listEntries', () => {
@@ -365,7 +226,6 @@ describe('createTransfer — ปฏิเสธ input ที่ทำ ledger พ
 });
 
 // PATCH ป้ายเท่านั้น (note, categoryId) — UPDATE แถวเดิม · ไม่แตะ amount/occurred_on/pocket
-// จึงแก้ได้แม้ในงวดที่กระทบยอดแล้ว (ติดหมวดย้อนหลังสำหรับ dashboard ในอนาคต)
 describe('updateEntryLabels (PATCH — ป้ายเท่านั้น)', () => {
   test('แก้ note ได้ · ประทับ updated_at · ไม่แตะ amount/occurred_on', async () => {
     const e = await createEntry(db, alice, { pocketId: alicePocket, amountSatang: -6100, occurredOn: '2026-03-10', note: 'เก่า' });
@@ -374,13 +234,6 @@ describe('updateEntryLabels (PATCH — ป้ายเท่านั้น)', (
     expect(updated.amountSatang).toBe(-6100);
     expect(updated.occurredOn).toBe('2026-03-10');
     expect(updated.updatedAt).not.toBeNull();
-  });
-
-  test('แก้ note ในงวดที่กระทบยอดแล้ว → สำเร็จ (ป้ายไม่แตะตัวเลข/วัน)', async () => {
-    const e = await createEntry(db, alice, { pocketId: alicePocket, amountSatang: 100, occurredOn: '2026-03-10' });
-    await reconcilePocket(alicePocket, '2026-03-15');
-    const updated = await updateEntryLabels(db, alice, e.id, { note: 'ติดหมวดย้อนหลัง' });
-    expect(updated.note).toBe('ติดหมวดย้อนหลัง');
   });
 
   test('categoryId ของผู้ใช้อื่น → ForbiddenError', async () => {
@@ -403,7 +256,6 @@ describe('updateEntryLabels (PATCH — ป้ายเท่านั้น)', (
 });
 
 // replace = แก้ยอด/วัน/กระเป๋า · soft delete แถวเดิม + สร้างแถวใหม่ ใน batch เดียว
-// 🔴 เช็คงวดปิดสองครั้ง: แถวเดิม (วันเดิม) และแถวใหม่ (วันใหม่) — ลบของวันเก่าก็กระทบยอดที่ตรวจแล้ว
 describe('replaceEntry (ยอด/วัน/กระเป๋า)', () => {
   test('replace ยอดในงวดเปิด → เก่า soft delete · ใหม่ยอดใหม่ · ยอดรวมถูก', async () => {
     const e = await createEntry(db, alice, { pocketId: alicePocket, amountSatang: -50000, occurredOn: '2026-03-10', note: 'พิมพ์ผิด' });
@@ -415,25 +267,6 @@ describe('replaceEntry (ยอด/วัน/กระเป๋า)', () => {
     expect(await balanceOf(alicePocket)).toBe(-5000);
     const old = await db.prepare('SELECT deleted_at FROM entry WHERE id = ?').bind(e.id).first<{ deleted_at: string | null }>();
     expect(old?.deleted_at).not.toBeNull();
-  });
-
-  test('ย้ายวันออกจากงวดที่กระทบยอดแล้ว → 409 · ไม่มีอะไรเปลี่ยน', async () => {
-    const e = await createEntry(db, alice, { pocketId: alicePocket, amountSatang: 100, occurredOn: '2026-03-10' });
-    await reconcilePocket(alicePocket, '2026-03-15'); // เส้นคลุมวันเก่า (03-10)
-    const before = await countEntries();
-    await expect(
-      replaceEntry(db, alice, e.id, { pocketId: alicePocket, amountSatang: 100, occurredOn: '2026-03-20' })
-    ).rejects.toBeInstanceOf(ConflictError);
-    expect(await countEntries()).toBe(before);
-    expect(await getEntry(db, alice, e.id)).not.toBeNull();
-  });
-
-  test('ย้ายวันเข้าไปในงวดที่กระทบยอดแล้ว → 409', async () => {
-    const e = await createEntry(db, alice, { pocketId: alicePocket, amountSatang: 100, occurredOn: '2026-03-20' });
-    await reconcilePocket(alicePocket, '2026-03-15'); // วันเก่า 03-20 นอกงวด (ผ่าน) · ย้ายไป 03-12 (ในงวด → ล้ม)
-    await expect(
-      replaceEntry(db, alice, e.id, { pocketId: alicePocket, amountSatang: 100, occurredOn: '2026-03-12' })
-    ).rejects.toBeInstanceOf(ConflictError);
   });
 
   // 🔴 batch atomic: ยอดใหม่ = 0 ผิด CHECK → INSERT ล้ม → UPDATE (ลบเก่า) ต้อง roll back ด้วย
@@ -465,21 +298,12 @@ describe('replaceEntry (ยอด/วัน/กระเป๋า)', () => {
     expect(await countEntries()).toBe(before);
   });
 
-  // ย้ายกระเป๋า (input.pocketId ต่างจากเดิม) — assertMember + assertNotReconciled ของกระเป๋าใหม่
+  // ย้ายกระเป๋า (input.pocketId ต่างจากเดิม) — assertMember ของกระเป๋าใหม่
   test('ย้ายไปกระเป๋าผู้ใช้อื่น → ForbiddenError', async () => {
     const e = await createEntry(db, alice, { pocketId: alicePocket, amountSatang: 100 });
     await expect(
       replaceEntry(db, alice, e.id, { pocketId: bobPocket, amountSatang: 100, occurredOn: '2026-03-10' })
     ).rejects.toBeInstanceOf(ForbiddenError);
-  });
-
-  test('ย้ายไปกระเป๋าที่งวดปิดคลุมวันใหม่ → ConflictError', async () => {
-    const dest = await seedPocket(alice);
-    await reconcilePocket(dest, '2026-03-15');
-    const e = await createEntry(db, alice, { pocketId: alicePocket, amountSatang: 100, occurredOn: '2026-03-20' });
-    await expect(
-      replaceEntry(db, alice, e.id, { pocketId: dest, amountSatang: 100, occurredOn: '2026-03-10' })
-    ).rejects.toBeInstanceOf(ConflictError);
   });
 
   test('ย้ายกระเป๋าสำเร็จ · ยอดย้ายตามไปด้วย', async () => {
