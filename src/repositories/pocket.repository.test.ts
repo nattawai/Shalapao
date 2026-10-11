@@ -200,7 +200,7 @@ describe('กันข้อมูลรั่วข้ามผู้ใช้'
   });
 });
 
-// แก้ได้เฉพาะ name · sortOrder · categoryId — kind/parentId/lastReconciledAt ห้ามแก้
+// แก้ได้เฉพาะ name · sortOrder · categoryId — kind/parentId ห้ามแก้
 describe('updatePocket', () => {
   test('แก้ชื่อสำเร็จ อ่านกลับได้ค่าใหม่', async () => {
     const p = await createPocket(db, alice, { name: 'ชื่อเก่า', kind: 'holds_balance' });
@@ -231,17 +231,15 @@ describe('updatePocket', () => {
     expect((await getPocket(db, alice, p.id))?.name).toBe('ของ Alice');
   });
 
-  test('แก้ชื่อไม่กระทบยอดและไม่กระทบ last_reconciled_at', async () => {
+  test('แก้ชื่อไม่กระทบยอด', async () => {
     const p = await createPocket(db, alice, { name: 'p', kind: 'holds_balance' });
     await insertEntry(p.id, alice, 350000);
-    await db.prepare('UPDATE pocket SET last_reconciled_at = ? WHERE id = ?').bind('2026-03-15', p.id).run();
 
     await updatePocket(db, alice, p.id, { name: 'เปลี่ยนชื่อ' });
 
     const after = await getPocket(db, alice, p.id);
     expect(after?.name).toBe('เปลี่ยนชื่อ');
     expect(after?.balanceSatang).toBe(350000);
-    expect(after?.lastReconciledAt).toBe('2026-03-15');
   });
 });
 
