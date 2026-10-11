@@ -2,7 +2,7 @@
 <html lang="th">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>Shalapao</title>
     <style>
       :root {
@@ -113,6 +113,35 @@
         background: none; color: var(--danger); border-radius: 8px; cursor: pointer; width: auto;
       }
       #gate { text-align: center; padding: 80px 24px; color: var(--muted); }
+
+      /* แถบล่างคงที่ — โชว์เฉพาะ "หน้าดู" ผ่านคลาส .with-nav ที่ตั้งใน show() ที่เดียว
+         🔴 safe area: padding-bottom env() กัน home indicator ของ iPhone ชนปุ่ม (ต้องมี
+            viewport-fit=cover ใน meta viewport ด้วย) · เนื้อหาเผื่อ padding-bottom เท่าความสูงแถบ
+         🔴 banner ตอนนี้ in-flow อยู่บนสุดจึงไม่ชน navbar · แต่ ROADMAP ชุด 2 จะเปลี่ยน banner
+            เป็น position: fixed ลอยทับ — พอทำข้อนั้นต้องยก banner ให้ bottom เผื่อความสูง navbar +
+            safe-area ไม่งั้นข้อความ error โดนแถบล่างทับ
+         ไอคอนเป็น emoji — แสดงผลต่างกันตามเครื่อง รับได้ใน v0 · งานออกแบบจริงเปลี่ยนเป็น SVG inline */
+      #navbar { display: none; }
+      #app.with-nav #navbar {
+        display: flex; align-items: center; justify-content: space-around;
+        position: fixed; left: 0; right: 0; bottom: 0; margin: 0 auto; max-width: 480px;
+        height: 56px; padding-bottom: env(safe-area-inset-bottom);
+        background: var(--card); border-top: 1px solid var(--border); z-index: 10;
+      }
+      #app.with-nav main { padding-bottom: calc(56px + env(safe-area-inset-bottom) + 16px); }
+      .nav-item {
+        flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px;
+        background: none; border: 0; padding: 6px 0; color: var(--muted); cursor: pointer;
+      }
+      .nav-item.active { color: var(--line); }
+      .nav-ico { font-size: 22px; line-height: 1; }
+      .nav-lbl { font-size: 11px; }
+      /* ช่องกลาง "จด" = วงกลมใหญ่ยกขึ้นเหนือแถบ กดง่ายสุด · ไม่มีสถานะ active (กดแล้วไปหน้าฟอร์ม) */
+      .nav-add .nav-ico {
+        display: flex; align-items: center; justify-content: center;
+        width: 52px; height: 52px; margin-top: -22px; border-radius: 50%;
+        background: var(--line); color: #fff; font-size: 28px; box-shadow: 0 2px 6px rgba(0,0,0,.2);
+      }
     </style>
   </head>
   <body>
@@ -127,8 +156,6 @@
         <header><h1>กระเป๋าของฉัน</h1></header>
         <main>
           <div id="pockets"><p class="empty">กำลังโหลด…</p></div>
-          <button class="btn" id="goEntry">＋ เพิ่มรายการ</button>
-          <button class="btn-ghost" id="goSummary">สรุปตามหมวด</button>
           <button class="btn-ghost" id="goTransfer">โยกเงินระหว่างกระเป๋า</button>
           <button class="btn-ghost" id="goCreate">สร้างกระเป๋าใหม่</button>
         </main>
@@ -219,6 +246,12 @@
         </main>
       </section>
 
+      <!-- แถบล่างคงที่ 3 ช่อง · โชว์/ซ่อน + ไฮไลต์ คุมที่ show() ที่เดียว (ดู NAV_SCREENS/NAV_ACTIVE) -->
+      <nav id="navbar">
+        <button type="button" class="nav-item" data-nav="home"><span class="nav-ico">🏠</span><span class="nav-lbl">หน้าแรก</span></button>
+        <button type="button" class="nav-item nav-add" data-nav="add"><span class="nav-ico">⊕</span><span class="nav-lbl">จด</span></button>
+        <button type="button" class="nav-item" data-nav="summary"><span class="nav-ico">📊</span><span class="nav-lbl">สรุป</span></button>
+      </nav>
     </div>
 
     <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
@@ -293,9 +326,18 @@
       }
 
       // ---------- สลับหน้าจอ ----------
+      // "หน้าดู" มีแถบล่าง · ฟอร์มไม่มี (มีปุ่มบันทึกล่างอยู่แล้ว navbar จะทับ)
+      const NAV_SCREENS = new Set(['screen-list', 'screen-summary', 'screen-statement']);
+      // ช่องที่ไฮไลต์ต่อหน้า — เดินบัญชีเป็นหน้าลูกของหน้าแรก (เข้าทางเดียวคือแตะกระเป๋า) จึงไฮไลต์
+      // "หน้าแรก" แบบ tab bar มาตรฐาน (ไม่มีสถานะว่างเปล่า) · ช่องกลาง "จด" ไม่เคย active
+      const NAV_ACTIVE = { 'screen-list': 'home', 'screen-statement': 'home', 'screen-summary': 'summary' };
       function show(screenId) {
         for (const s of document.querySelectorAll('.screen')) s.hidden = s.id !== screenId;
         window.scrollTo(0, 0);
+        const app = document.getElementById('app');
+        app.classList.toggle('with-nav', NAV_SCREENS.has(screenId));
+        const active = NAV_ACTIVE[screenId];
+        for (const b of document.querySelectorAll('#navbar [data-nav]')) b.classList.toggle('active', b.dataset.nav === active);
       }
 
       // ---------- แถบ error กลางหน้า ----------
@@ -762,8 +804,14 @@
       }
 
       // ---------- wiring ----------
-      document.getElementById('goEntry').addEventListener('click', openEntry);
-      document.getElementById('goSummary').addEventListener('click', openSummary);
+      // แถบล่าง: delegation ตัวเดียว · จด → openEntry · สรุป → openSummary (โหลดเดือนปัจจุบัน)
+      document.getElementById('navbar').addEventListener('click', (e) => {
+        const b = e.target.closest('[data-nav]');
+        if (!b) return;
+        if (b.dataset.nav === 'home') show('screen-list');
+        else if (b.dataset.nav === 'add') openEntry();
+        else if (b.dataset.nav === 'summary') openSummary();
+      });
       document.getElementById('smPrev').addEventListener('click', () => shiftMonth(-1));
       document.getElementById('smNext').addEventListener('click', () => shiftMonth(1));
       document.getElementById('goTransfer').addEventListener('click', openTransfer);
