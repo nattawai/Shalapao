@@ -75,6 +75,7 @@
       .seg button.active { color: #fff; }
       .seg button.active[data-type="out"] { background: var(--danger); border-color: var(--danger); }
       .seg button.active[data-type="in"] { background: var(--pos); border-color: var(--pos); }
+      .seg button.active[data-type="transfer"] { background: var(--line); border-color: var(--line); }
 
       /* รายการเดินบัญชี */
       .entry { display: flex; justify-content: space-between; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--border); background: var(--card); cursor: pointer; }
@@ -156,7 +157,6 @@
         <header><h1>กระเป๋าของฉัน</h1></header>
         <main>
           <div id="pockets"><p class="empty">กำลังโหลด…</p></div>
-          <button class="btn-ghost" id="goTransfer">โยกเงินระหว่างกระเป๋า</button>
           <button class="btn-ghost" id="goCreate">สร้างกระเป๋าใหม่</button>
         </main>
       </section>
@@ -187,37 +187,34 @@
           <div class="seg" id="enSeg">
             <button type="button" data-type="out" class="active">เงินออก</button>
             <button type="button" data-type="in">เงินเข้า</button>
+            <button type="button" data-type="transfer">โยกเงิน</button>
           </div>
-          <label for="enPocket">กระเป๋า</label>
-          <select id="enPocket"></select>
-          <label for="enCategory">หมวด (ไม่บังคับ)</label>
-          <select id="enCategory"></select>
-          <label for="enBaht">จำนวนเงิน (บาท)</label>
-          <input id="enBaht" type="text" inputmode="decimal" placeholder="0.00" />
-          <label for="enDate">วันที่</label>
-          <input id="enDate" type="date" />
-          <label for="enNote">บันทึก (ไม่บังคับ)</label>
-          <input id="enNote" type="text" placeholder="เช่น ค่ากาแฟ" />
-          <button class="btn" id="enSubmit">บันทึก</button>
-          <div class="form-error" id="enError"></div>
-        </main>
-      </section>
-
-      <!-- หน้าจอ 4: โยกเงิน -->
-      <section id="screen-transfer" class="screen" hidden>
-        <header>
-          <button class="back" data-back aria-label="กลับ">‹</button>
-          <h1>โยกเงิน</h1>
-        </header>
-        <main>
-          <label for="tfFrom">จาก</label>
-          <select id="tfFrom"></select>
-          <label for="tfTo">ไป</label>
-          <select id="tfTo"></select>
-          <label for="tfBaht">จำนวนเงิน (บาท)</label>
-          <input id="tfBaht" type="text" inputmode="decimal" placeholder="0.00" />
-          <button class="btn" id="tfSubmit">โยกเงิน</button>
-          <div class="form-error" id="tfError"></div>
+          <!-- แท็บเงินออก/เงินเข้า (ฟอร์มเดียวกัน ต่างแค่เครื่องหมายตอน submit) -->
+          <div id="enNormal">
+            <label for="enPocket">กระเป๋า</label>
+            <select id="enPocket"></select>
+            <label for="enCategory">หมวด (ไม่บังคับ)</label>
+            <select id="enCategory"></select>
+            <label for="enBaht">จำนวนเงิน (บาท)</label>
+            <input id="enBaht" type="text" inputmode="decimal" placeholder="0.00" />
+            <label for="enDate">วันที่</label>
+            <input id="enDate" type="date" />
+            <label for="enNote">บันทึก (ไม่บังคับ)</label>
+            <input id="enNote" type="text" placeholder="เช่น ค่ากาแฟ" />
+            <button class="btn" id="enSubmit">บันทึก</button>
+            <div class="form-error" id="enError"></div>
+          </div>
+          <!-- แท็บโยกเงิน (ฟอร์มคนละชุด — ไม่มีหมวด/หมายเหตุ) · POST /api/transfers เหมือนเดิม -->
+          <div id="enTransfer" hidden>
+            <label for="tfFrom">จาก</label>
+            <select id="tfFrom"></select>
+            <label for="tfTo">ไป</label>
+            <select id="tfTo"></select>
+            <label for="tfBaht">จำนวนเงิน (บาท)</label>
+            <input id="tfBaht" type="text" inputmode="decimal" placeholder="0.00" />
+            <button class="btn" id="tfSubmit">โยกเงิน</button>
+            <div class="form-error" id="tfError"></div>
+          </div>
         </main>
       </section>
 
@@ -331,7 +328,9 @@
       // ช่องที่ไฮไลต์ต่อหน้า — เดินบัญชีเป็นหน้าลูกของหน้าแรก (เข้าทางเดียวคือแตะกระเป๋า) จึงไฮไลต์
       // "หน้าแรก" แบบ tab bar มาตรฐาน (ไม่มีสถานะว่างเปล่า) · ช่องกลาง "จด" ไม่เคย active
       const NAV_ACTIVE = { 'screen-list': 'home', 'screen-statement': 'home', 'screen-summary': 'summary' };
+      let currentScreenId = null;
       function show(screenId) {
+        currentScreenId = screenId;
         for (const s of document.querySelectorAll('.screen')) s.hidden = s.id !== screenId;
         window.scrollTo(0, 0);
         const app = document.getElementById('app');
@@ -483,30 +482,74 @@
       }
 
       // ---------- หน้าจอ 3: เพิ่มรายการ ----------
-      let entryType = 'out'; // ดีฟอลต์เงินออก · โค้ดใส่เครื่องหมายเอง ผู้ใช้ไม่พิมพ์ลบ
+      let entryType = 'out'; // out | in | transfer · โค้ดใส่เครื่องหมายเอง ผู้ใช้ไม่พิมพ์ลบ
       let entryDateTouched = false;
+      // 🔴 จำกระเป๋าที่ใช้ล่าสุดแยกกันสองตัว (ไม่เก็บถาวร) — เงินออก/เข้าจดทุกวัน · โยกเงินเดือนละครั้ง
+      // ถ้าใช้ตัวเดียวกัน พอโยกแบ่งเงินเดือนหลายรอบ วันรุ่งขึ้นกดจดจะเจอกระเป๋าต้นทางของการโยกค้าง
+      let lastUsedPocketId = null; // แท็บเงินออก/เงินเข้า
+      let lastTransferFromId = null; // แท็บโยกเงิน
+      let entryPreferPocketId = null; // ใบที่อยากตั้งเป็นค่าเริ่มต้น (เช่น ใบที่กำลังดูเดินบัญชี)
 
-      function openEntry() {
+      // เปิดหน้าจด · preferPocketId = ใบที่อยากตั้งให้ (เข้าจากหน้าเดินบัญชี → ใบที่กำลังดู)
+      function openEntry(preferPocketId) {
         if (pocketsCache.length === 0) { showBanner('ยังไม่มีกระเป๋า — สร้างกระเป๋าก่อนจึงจะเพิ่มรายการได้'); return; }
+        entryPreferPocketId = preferPocketId || null;
         entryType = 'out';
         for (const b of document.querySelectorAll('#enSeg button')) b.classList.toggle('active', b.dataset.type === 'out');
-        fillPocketOptions(document.getElementById('enPocket'), null);
-        fillCategoryOptions(''); // ตั้งต้นจาก cache ปัจจุบัน (อาจเหลือแค่ "ไม่ระบุหมวด"/"+ หมวดใหม่…" ถ้าเคยพลาด)
+        document.getElementById('enNormal').hidden = false;
+        document.getElementById('enTransfer').hidden = true;
+        resetNormalForm();
+        show('screen-entry'); // 🔴 หน้าต้องขึ้นทันทีที่กด — api() ไม่มี timeout ถ้า await ไว้จะดูเหมือนแอปค้าง
+
+        // โหลดหมวดเคยพลาด → ลองอีกครั้งเบื้องหลัง (ไม่ await) · เติม dropdown เฉพาะตอนผู้ใช้ยังไม่เลือก
+        if (categoriesLoadFailed) {
+          loadCategories().then(() => {
+            if (document.getElementById('enCategory').value === '') fillCategoryOptions('');
+          }).catch(() => {});
+        }
+      }
+
+      // ตั้ง select เป็น id ที่ขอ · ถ้าไม่มีในตัวเลือก (ถูกลบไปแล้ว) ตกไปใบแรก
+      function selectPocket(sel, id) {
+        sel.value = id || '';
+        if (sel.selectedIndex < 0) sel.selectedIndex = 0;
+      }
+
+      function resetNormalForm() {
+        const sel = document.getElementById('enPocket');
+        fillPocketOptions(sel, null);
+        selectPocket(sel, entryPreferPocketId || lastUsedPocketId);
+        fillCategoryOptions('');
         lastCategoryValue = '';
         document.getElementById('enBaht').value = '';
         document.getElementById('enNote').value = '';
         document.getElementById('enDate').value = todayBangkok();
         entryDateTouched = false;
         document.getElementById('enError').textContent = '';
-        show('screen-entry'); // 🔴 หน้าต้องขึ้นทันทีที่กด — api() ไม่มี timeout ถ้า await ไว้จะดูเหมือนแอปค้าง
+      }
 
-        // โหลดหมวดเคยพลาด → ลองอีกครั้งเบื้องหลัง (ไม่ await) · สำเร็จแล้วเติม dropdown เฉพาะตอนผู้ใช้
-        // ยังไม่ได้เลือก (value ยัง '') ไม่งั้นจะไปล้างหมวดที่เขาเพิ่งเลือกระหว่างรอ
-        if (categoriesLoadFailed) {
-          loadCategories().then(() => {
-            if (document.getElementById('enCategory').value === '') fillCategoryOptions('');
-          }).catch(() => {});
-        }
+      function resetTransferForm() {
+        const from = document.getElementById('tfFrom');
+        const to = document.getElementById('tfTo');
+        fillPocketOptions(from, null);
+        fillPocketOptions(to, null);
+        selectPocket(from, entryPreferPocketId || lastTransferFromId);
+        // ปลายทางเริ่มที่ใบแรกที่ไม่ใช่ต้นทาง (กันซ้ำ)
+        for (const opt of to.options) { if (opt.value !== from.value) { to.value = opt.value; break; } }
+        document.getElementById('tfBaht').value = '';
+        validateTransfer();
+      }
+
+      // สลับแท็บ · ข้ามกลุ่ม (ปกติ↔โยก) = ฟอร์มคนละชุด ต้องล้างค่า ไม่ให้ยอดหลุดข้าม · out↔in ฟอร์มเดียวกันไม่ล้าง
+      function setEntryTab(type) {
+        if (type === entryType) return;
+        const crossGroup = (entryType === 'transfer') !== (type === 'transfer');
+        entryType = type;
+        for (const b of document.querySelectorAll('#enSeg button')) b.classList.toggle('active', b.dataset.type === type);
+        const isTransfer = type === 'transfer';
+        document.getElementById('enNormal').hidden = isTransfer;
+        document.getElementById('enTransfer').hidden = !isTransfer;
+        if (crossGroup) { if (isTransfer) resetTransferForm(); else resetNormalForm(); }
       }
 
       // เลือก "+ หมวดใหม่…" → prompt ถามชื่อ → สร้างแล้วเลือกให้เลย กรอกเงินต่อได้ทันที
@@ -554,6 +597,7 @@
         btn.disabled = true;
         try {
           await api('POST', '/api/entries', body);
+          lastUsedPocketId = body.pocketId; // จำไว้ให้ครั้งหน้า (เฉพาะแท็บเงินออก/เข้า)
           await loadPockets(); // เห็นยอดเปลี่ยนทันที
           show('screen-list');
         } catch (err) {
@@ -563,25 +607,21 @@
         }
       }
 
-      // ---------- หน้าจอ 4: โยกเงิน ----------
-      function openTransfer() {
-        if (pocketsCache.length < 2) { showBanner('ต้องมีอย่างน้อยสองกระเป๋าจึงจะโยกเงินได้'); return; }
-        fillPocketOptions(document.getElementById('tfFrom'), null);
-        fillPocketOptions(document.getElementById('tfTo'), null);
-        document.getElementById('tfTo').selectedIndex = 1; // ปลายทางเริ่มที่ใบอื่น กันซ้ำต้นทาง
-        document.getElementById('tfBaht').value = '';
-        validateTransfer();
-        show('screen-transfer');
-      }
-
-      // กันเลือกกระเป๋าเดียวกันตั้งแต่หน้าจอ (backend กันอยู่แล้ว แต่อย่าให้กดแล้วค่อยโดนปฏิเสธ)
+      // กันเลือกกระเป๋าเดียวกัน/มีใบเดียวตั้งแต่หน้าจอ (backend กันอยู่แล้ว แต่อย่าให้กดแล้วค่อยโดนปฏิเสธ)
       function validateTransfer() {
+        const errEl = document.getElementById('tfError');
+        const btn = document.getElementById('tfSubmit');
+        // มีกระเป๋าใบเดียว → ไม่ใช่เรื่อง "เลือกซ้ำ" (ผู้ใช้ไม่ได้เลือก) · บอกตรง ๆ ว่าต้องมี 2 ใบ
+        if (pocketsCache.length < 2) {
+          errEl.textContent = 'ต้องมีกระเป๋าอย่างน้อย 2 ใบจึงจะโยกเงินได้';
+          btn.disabled = true;
+          return;
+        }
         const from = document.getElementById('tfFrom').value;
         const to = document.getElementById('tfTo').value;
-        const errEl = document.getElementById('tfError');
         const same = from === to;
         errEl.textContent = same ? 'เลือกกระเป๋าปลายทางที่ต่างจากต้นทาง' : '';
-        document.getElementById('tfSubmit').disabled = same;
+        btn.disabled = same;
       }
 
       async function submitTransfer() {
@@ -601,6 +641,7 @@
         errEl.textContent = '';
         try {
           await api('POST', '/api/transfers', { fromPocketId, toPocketId, amountSatang });
+          lastTransferFromId = fromPocketId; // จำต้นทางไว้ให้ครั้งหน้า (แยกจาก last-used ของเงินออก/เข้า)
           await loadPockets();
           show('screen-list');
         } catch (err) {
@@ -809,12 +850,12 @@
         const b = e.target.closest('[data-nav]');
         if (!b) return;
         if (b.dataset.nav === 'home') show('screen-list');
-        else if (b.dataset.nav === 'add') openEntry();
+        // เข้าจากหน้าเดินบัญชี → ตั้งกระเป๋าเป็นใบที่กำลังดูอยู่ (ไม่ใช่ใบที่ใช้ล่าสุด)
+        else if (b.dataset.nav === 'add') openEntry(currentScreenId === 'screen-statement' && statementPocket ? statementPocket.id : null);
         else if (b.dataset.nav === 'summary') openSummary();
       });
       document.getElementById('smPrev').addEventListener('click', () => shiftMonth(-1));
       document.getElementById('smNext').addEventListener('click', () => shiftMonth(1));
-      document.getElementById('goTransfer').addEventListener('click', openTransfer);
       document.getElementById('goCreate').addEventListener('click', openCreate);
       document.getElementById('cpSubmit').addEventListener('click', submitCreate);
       document.getElementById('enSubmit').addEventListener('click', submitEntry);
@@ -824,10 +865,7 @@
       document.getElementById('tfFrom').addEventListener('change', validateTransfer);
       document.getElementById('tfTo').addEventListener('change', validateTransfer);
       for (const b of document.querySelectorAll('#enSeg button')) {
-        b.addEventListener('click', () => {
-          entryType = b.dataset.type;
-          for (const x of document.querySelectorAll('#enSeg button')) x.classList.toggle('active', x === b);
-        });
+        b.addEventListener('click', () => setEntryTab(b.dataset.type));
       }
       // ปุ่มกลับทุกหน้า → หน้าแรก (v0 มีชั้นเดียว ไม่ต้องมี history stack)
       for (const b of document.querySelectorAll('[data-back]')) b.addEventListener('click', () => show('screen-list'));
