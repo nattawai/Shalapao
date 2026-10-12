@@ -71,6 +71,7 @@
 
       /* สลับเงินออก/เงินเข้า — เลือกก่อน ผู้ใช้ไม่ต้องพิมพ์เครื่องหมายลบ */
       .seg { display: flex; gap: 8px; }
+      .seg[hidden] { display: none; } /* .seg{display:flex} ชนะ [hidden] ของ UA — ต้องสั่งซ่อนเอง (โหมดแก้ไข) */
       .seg button { flex: 1; padding: 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--card); color: var(--text); cursor: pointer; font-weight: 600; }
       .seg button.active { color: #fff; }
       .seg button.active[data-type="out"] { background: var(--danger); border-color: var(--danger); }
@@ -143,6 +144,30 @@
         width: 52px; height: 52px; margin-top: -22px; border-radius: 50%;
         background: var(--line); color: #fff; font-size: 28px; box-shadow: 0 2px 6px rgba(0,0,0,.2);
       }
+
+      /* เมนูแตะแถว (action sheet) · z-index เหนือ navbar (10) · เผื่อ safe-area เหมือน #navbar */
+      #rowSheet { position: fixed; inset: 0; z-index: 20; display: flex; flex-direction: column; justify-content: flex-end; }
+      #rowSheet[hidden] { display: none; }
+      .sheet-backdrop { position: absolute; inset: 0; background: rgba(0, 0, 0, .4); }
+      .sheet {
+        position: relative; margin: 0 auto; width: 100%; max-width: 480px;
+        background: var(--card); border-top-left-radius: 16px; border-top-right-radius: 16px;
+        padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+        display: flex; flex-direction: column; gap: 8px;
+      }
+      .sheet-btn {
+        width: 100%; padding: 14px; font-size: 16px; border: 1px solid var(--border);
+        border-radius: 10px; background: var(--card); color: var(--text); cursor: pointer;
+      }
+      .sheet-btn.danger { color: var(--danger); border-color: var(--danger); }
+      .sheet-btn.ghost { color: var(--muted); }
+      .sheet-note { margin: 2px 0; font-size: 13px; text-align: center; color: var(--muted); }
+
+      /* โหมดแก้ไข: ป้ายทิศทางอ่านอย่างเดียว แทนแท็บ enSeg (เปลี่ยนทิศไม่ได้) · เป็น div ไม่ใช่ปุ่ม ไม่มี cursor */
+      .dir-label { padding: 10px 0; font-size: 16px; font-weight: 600; }
+      .dir-label.out { color: var(--danger); }
+      .dir-label.in { color: var(--pos); }
+      .dir-label small { display: block; margin-top: 2px; font-size: 12px; font-weight: 400; color: var(--muted); }
     </style>
   </head>
   <body>
@@ -181,7 +206,7 @@
       <section id="screen-entry" class="screen" hidden>
         <header>
           <button class="back" data-back aria-label="กลับ">‹</button>
-          <h1>เพิ่มรายการ</h1>
+          <h1 id="enTitle">เพิ่มรายการ</h1>
         </header>
         <main>
           <div class="seg" id="enSeg">
@@ -189,6 +214,8 @@
             <button type="button" data-type="in">เงินเข้า</button>
             <button type="button" data-type="transfer">โยกเงิน</button>
           </div>
+          <!-- โหมดแก้ไข: แทน enSeg · บอกทิศของยอดเดิม (แก้ทิศไม่ได้) · ข้อความ ไม่ใช่ปุ่ม -->
+          <div class="dir-label" id="enDir" hidden></div>
           <!-- แท็บเงินออก/เงินเข้า (ฟอร์มเดียวกัน ต่างแค่เครื่องหมายตอน submit) -->
           <div id="enNormal">
             <label for="enPocket">กระเป๋า</label>
@@ -249,6 +276,17 @@
         <button type="button" class="nav-item nav-add" data-nav="add"><span class="nav-ico">⊕</span><span class="nav-lbl">จด</span></button>
         <button type="button" class="nav-item" data-nav="summary"><span class="nav-ico">📊</span><span class="nav-lbl">สรุป</span></button>
       </nav>
+
+      <!-- เมนูแตะแถวเดินบัญชี · แผ่นทึบ/ยกเลิก = ปิดเฉย ๆ · โยกเงินซ่อนปุ่มแก้ไข (backend ปฏิเสธ replace ขาโยก) -->
+      <div id="rowSheet" hidden>
+        <div class="sheet-backdrop" id="rsBackdrop"></div>
+        <div class="sheet">
+          <button type="button" class="sheet-btn" id="rsEdit">แก้ไข</button>
+          <p class="sheet-note" id="rsTransferNote" hidden>รายการโยกเงินแก้ไม่ได้ ให้ลบแล้วโยกใหม่</p>
+          <button type="button" class="sheet-btn danger" id="rsDelete">ลบ</button>
+          <button type="button" class="sheet-btn ghost" id="rsCancel">ยกเลิก</button>
+        </div>
+      </div>
     </div>
 
     <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
@@ -495,6 +533,7 @@
         if (pocketsCache.length === 0) { showBanner('ยังไม่มีกระเป๋า — สร้างกระเป๋าก่อนจึงจะเพิ่มรายการได้'); return; }
         entryPreferPocketId = preferPocketId || null;
         entryType = 'out';
+        exitEditMode(); // กลับจากโหมดแก้ไข: โชว์แท็บ/ซ่อนป้ายทิศ/คืนหัวข้อ+ปุ่มเป็น "เพิ่มรายการ"
         for (const b of document.querySelectorAll('#enSeg button')) b.classList.toggle('active', b.dataset.type === 'out');
         document.getElementById('enNormal').hidden = false;
         document.getElementById('enTransfer').hidden = true;
@@ -573,6 +612,7 @@
       }
 
       async function submitEntry() {
+        if (editingEntry) return submitEdit(); // โหมดแก้ไข → ไปเส้นทาง PATCH/replace
         const errEl = document.getElementById('enError');
         errEl.textContent = '';
         let magnitude;
@@ -681,7 +721,7 @@
         for (const e of entries) {
           const row = document.createElement('div');
           row.className = 'entry';
-          row.addEventListener('click', () => confirmDelete(e)); // แตะแถว → ถามยืนยันลบ
+          row.addEventListener('click', () => openRowMenu(e)); // แตะแถว → เมนู แก้ไข/ลบ
           const meta = document.createElement('div');
           meta.className = 'meta';
           const date = document.createElement('div');
@@ -737,6 +777,128 @@
         } catch (err) {
           showBanner(err.message, null); // 409 (งวดปิดแล้ว) — message จาก API บอกทางออก
         }
+      }
+
+      // ---------- เมนูแตะแถว + แก้ไขรายการ ----------
+      let editingEntry = null; // ไม่ null = screen-entry อยู่โหมดแก้ไข (submitEntry แตกไป submitEdit)
+
+      // แผ่นเมนูบอก "จะทำอะไร" · ขาโยกแก้ไม่ได้ (backend 400) จึงซ่อนปุ่มแก้ไข ไม่เปิดปุ่มที่กดแล้วพัง
+      function openRowMenu(entry) {
+        const isTransfer = !!entry.transferId;
+        document.getElementById('rsEdit').hidden = isTransfer;
+        document.getElementById('rsTransferNote').hidden = !isTransfer;
+        document.getElementById('rsEdit').onclick = () => { closeRowMenu(); openEdit(entry); };
+        document.getElementById('rsDelete').onclick = () => { closeRowMenu(); confirmDelete(entry); };
+        document.getElementById('rowSheet').hidden = false;
+      }
+
+      function closeRowMenu() {
+        document.getElementById('rowSheet').hidden = true;
+      }
+
+      // คืนค่าหน้าจดจากโหมดแก้ไข → โหมดเพิ่มปกติ
+      function exitEditMode() {
+        editingEntry = null;
+        document.getElementById('enSeg').hidden = false;
+        document.getElementById('enDir').hidden = true;
+        document.getElementById('enTitle').textContent = 'เพิ่มรายการ';
+        document.getElementById('enSubmit').textContent = 'บันทึก';
+      }
+
+      // สตางค์ → บาทสำหรับเติมช่อง input · ไม่มีตัวคั่นพัน (bahtToSatang ปฏิเสธ comma) · ค่าสัมบูรณ์
+      function satangToInputBaht(satang) {
+        const abs = Math.abs(satang);
+        const rem = abs % 100;
+        return rem === 0 ? String(Math.trunc(abs / 100)) : Math.trunc(abs / 100) + '.' + String(rem).padStart(2, '0');
+      }
+
+      // เปิด screen-entry ในโหมดแก้ไข · ทิศมาจากเครื่องหมายยอดเดิม (ช่องยอดเป็นค่าสัมบูรณ์)
+      function openEdit(entry) {
+        editingEntry = entry;
+        const dirOut = entry.amountSatang < 0;
+        document.getElementById('enSeg').hidden = true;
+        const dir = document.getElementById('enDir');
+        dir.className = 'dir-label ' + (dirOut ? 'out' : 'in');
+        dir.innerHTML = (dirOut ? 'เงินออก' : 'เงินเข้า') + '<small>เปลี่ยนทิศไม่ได้ — อยากเปลี่ยนให้ลบแล้วจดใหม่</small>';
+        dir.hidden = false;
+        document.getElementById('enNormal').hidden = false;
+        document.getElementById('enTransfer').hidden = true;
+        document.getElementById('enTitle').textContent = 'แก้ไขรายการ';
+        document.getElementById('enSubmit').textContent = 'บันทึกการแก้ไข';
+
+        const pocketSel = document.getElementById('enPocket');
+        fillPocketOptions(pocketSel, null);
+        selectPocket(pocketSel, entry.pocketId);
+        fillCategoryOptions(entry.categoryId || '');
+        lastCategoryValue = document.getElementById('enCategory').value; // อาจตกเป็น '' ถ้าหมวดถูกลบ
+        document.getElementById('enBaht').value = satangToInputBaht(entry.amountSatang);
+        document.getElementById('enDate').value = entry.occurredOn;
+        document.getElementById('enNote').value = entry.note || '';
+        document.getElementById('enError').textContent = '';
+        show('screen-entry');
+      }
+
+      // 🔴 กฎเดียว: เปลี่ยนโครง (ยอด/วัน/กระเป๋า) → replace · เปลี่ยนแค่ป้าย → PATCH · ไม่เปลี่ยน → ไม่ยิง
+      //    ยิงครั้งเดียวเสมอ — replace รับ note/categoryId ครบ ไม่ต้องตาม PATCH ซ้ำ
+      async function submitEdit() {
+        const errEl = document.getElementById('enError');
+        errEl.textContent = '';
+        let magnitude;
+        try {
+          magnitude = bahtToSatang(document.getElementById('enBaht').value);
+        } catch (err) {
+          errEl.textContent = err.message; return;
+        }
+        if (magnitude === 0) { errEl.textContent = 'จำนวนเงินต้องมากกว่า 0'; return; }
+
+        const orig = editingEntry;
+        const newAmount = orig.amountSatang < 0 ? -magnitude : magnitude; // ทิศคงเดิม
+        const newPocketId = document.getElementById('enPocket').value;
+        const newDate = document.getElementById('enDate').value;
+        const newNote = document.getElementById('enNote').value.trim();
+        const catRaw = document.getElementById('enCategory').value;
+        const newCategoryId = catRaw && catRaw !== '__new__' ? catRaw : null;
+
+        // normalize ของเดิมให้เทียบได้: note ว่าง/ไม่มี = '' · categoryId ไม่มี = null
+        const structuralChanged =
+          newAmount !== orig.amountSatang || newDate !== orig.occurredOn || newPocketId !== orig.pocketId;
+        const noteChanged = newNote !== (orig.note || '');
+        const categoryChanged = newCategoryId !== (orig.categoryId || null);
+
+        if (!structuralChanged && !noteChanged && !categoryChanged) { returnFromEdit(orig.pocketId); return; }
+
+        const btn = document.getElementById('enSubmit');
+        btn.disabled = true;
+        try {
+          if (structuralChanged) {
+            await api('POST', '/api/entries/' + encodeURIComponent(orig.id) + '/replace', {
+              pocketId: newPocketId,
+              amountSatang: newAmount,
+              occurredOn: newDate,
+              note: newNote || null, // null = ล้าง
+              categoryId: newCategoryId // null = ล้าง
+            });
+          } else {
+            const patch = {};
+            if (noteChanged) patch.note = newNote || null;
+            if (categoryChanged) patch.categoryId = newCategoryId;
+            await api('PATCH', '/api/entries/' + encodeURIComponent(orig.id), patch);
+          }
+          await loadPockets(); // ยอดเปลี่ยน — โดยเฉพาะย้ายกระเป๋า (สองใบ) หรือแก้ยอด
+          returnFromEdit(newPocketId); // ไปเดินบัญชีของใบที่รายการอยู่ตอนนี้ (เห็นผลกับตา)
+        } catch (err) {
+          errEl.textContent = err.message;
+        } finally {
+          btn.disabled = false;
+        }
+      }
+
+      // กลับหน้าเดินบัญชีของกระเป๋าที่ระบุ · หาใบไม่เจอ (ถูกลบจากอีกเครื่อง) → หน้าแรกแทน ไม่ปล่อยหน้าขาว
+      function returnFromEdit(pocketId) {
+        exitEditMode();
+        const pocket = pocketsCache.find((p) => p.id === pocketId);
+        if (pocket) openStatement(pocket);
+        else show('screen-list');
       }
 
       // ---------- หน้าจอ: สรุปตามหมวด ----------
@@ -861,6 +1023,9 @@
       document.getElementById('enSubmit').addEventListener('click', submitEntry);
       document.getElementById('enCategory').addEventListener('change', onCategoryChange);
       document.getElementById('tfSubmit').addEventListener('click', submitTransfer);
+      // ปิดเมนูแตะแถว: แผ่นทึบ/ยกเลิก = ไม่เกิดอะไรขึ้น (ปุ่มแก้ไข/ลบ ผูก onclick ตอนเปิดเมนู)
+      document.getElementById('rsBackdrop').addEventListener('click', closeRowMenu);
+      document.getElementById('rsCancel').addEventListener('click', closeRowMenu);
       document.getElementById('enDate').addEventListener('input', () => { entryDateTouched = true; });
       document.getElementById('tfFrom').addEventListener('change', validateTransfer);
       document.getElementById('tfTo').addEventListener('change', validateTransfer);
