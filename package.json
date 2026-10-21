@@ -16,7 +16,7 @@
     "check": "pnpm typecheck && pnpm lint && pnpm test"
   },
   "dependencies": {
-    "hono": "^4.13.9",
+    "hono": "^4.13.11",
     "ulid": "^2.3.0",
     "zod": "^4.6.5"
   },
